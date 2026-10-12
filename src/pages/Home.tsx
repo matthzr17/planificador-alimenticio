@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { ChevronRight, LogOut, ShoppingCart, Soup, User, Warehouse } from 'lucide-react'
 import { useAuth } from '@/auth/AuthProvider'
-import { supabase } from '@/lib/supabase'
-import type { Tables } from '@/lib/database.types'
+import { useProfile } from '@/hooks/useProfile'
+import { DIET_OPTIONS, GOAL_OPTIONS } from '@/lib/catalogs'
+import { MacroSummary } from '@/components/MacroSummary'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const modulos = [
-  { to: '/perfil', icon: User, title: 'Perfil nutricional', desc: 'Métricas, objetivo y macros diarios.', etapa: 2 },
+  { to: '/perfil', icon: User, title: 'Perfil nutricional', desc: 'Métricas, objetivo y macros diarios.', etapa: null },
   { to: '/despensa', icon: Warehouse, title: 'Despensa', desc: 'Lo que ya tienes en casa.', etapa: 3 },
   { to: '/menu', icon: Soup, title: 'Menú semanal', desc: 'Recetas según tu tiempo y tu despensa.', etapa: 3 },
   { to: '/compras', icon: ShoppingCart, title: 'Lista de compras', desc: 'Lo que falta y dónde conviene comprarlo.', etapa: 4 },
@@ -16,22 +16,12 @@ const modulos = [
 
 export default function Home() {
   const { session, signOut } = useAuth()
-  const [profile, setProfile] = useState<Tables<'profiles'> | null>(null)
-  const [dbError, setDbError] = useState<string | null>(null)
-
-  // Lectura de prueba: confirma que la sesión y las políticas RLS funcionan.
-  useEffect(() => {
-    supabase
-      .from('profiles')
-      .select('*')
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (error) setDbError(error.message)
-        else setProfile(data)
-      })
-  }, [])
+  const { profile, loading, error } = useProfile()
 
   const nombre = profile?.full_name?.split(' ')[0]
+  const tieneObjetivo = profile?.target_kcal != null
+  const objetivo = GOAL_OPTIONS.find((g) => g.value === profile?.goal)?.label
+  const dieta = DIET_OPTIONS.find((d) => d.value === profile?.diet_type)?.label
 
   return (
     <div className="grid gap-6">
@@ -45,16 +35,36 @@ export default function Home() {
         </Button>
       </header>
 
-      <Card className="border-primary/20 bg-primary text-primary-foreground">
-        <CardHeader>
-          <CardTitle className="text-lg">Objetivo diario</CardTitle>
-          <CardDescription className="text-primary-foreground/80">
-            {profile?.target_kcal
-              ? `${profile.target_kcal} kcal`
-              : 'Completa tu perfil para calcular tus calorías y macros.'}
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      {!loading &&
+        (tieneObjetivo ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Objetivo diario</CardTitle>
+              <CardDescription>{[objetivo, dieta].filter(Boolean).join(' · ')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MacroSummary
+                kcal={profile!.target_kcal!}
+                macros={{
+                  proteinG: profile!.target_protein_g ?? 0,
+                  carbsG: profile!.target_carbs_g ?? 0,
+                  fatG: profile!.target_fat_g ?? 0,
+                }}
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          <Link to="/perfil" className="block">
+            <Card className="border-primary/20 bg-primary text-primary-foreground transition-opacity active:opacity-90">
+              <CardHeader>
+                <CardTitle className="text-lg">Completa tu perfil</CardTitle>
+                <CardDescription className="text-primary-foreground/80">
+                  Con tus datos se calculan tus calorías y macros diarios. Toma 2 minutos.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </Link>
+        ))}
 
       <section className="grid gap-3">
         <h2 className="text-sm font-medium text-muted-foreground">Módulos</h2>
@@ -69,7 +79,9 @@ export default function Home() {
                   <p className="font-medium">{title}</p>
                   <p className="truncate text-sm text-muted-foreground">{desc}</p>
                 </div>
-                <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">Etapa {etapa}</span>
+                {etapa && (
+                  <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-accent-foreground">Etapa {etapa}</span>
+                )}
                 <ChevronRight className="size-4 text-muted-foreground" />
               </CardContent>
             </Card>
@@ -78,7 +90,7 @@ export default function Home() {
       </section>
 
       <p className="text-center text-xs text-muted-foreground">
-        {dbError ? `Error de conexión: ${dbError}` : `Conectado como ${session?.user.email}`}
+        {error ? `Error de conexión: ${error}` : `Conectado como ${session?.user.email}`}
       </p>
     </div>
   )
