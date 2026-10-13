@@ -200,6 +200,36 @@ export type Database = {
         Update: Partial<Database['public']['Tables']['recipes']['Insert']>
         Relationships: []
       }
+      product_prices: {
+        Row: {
+          brand: string | null
+          created_at: string
+          id: string
+          ingredient_id: string
+          observed_on: string
+          package_qty: number
+          package_unit: string
+          price: number
+          product_name: string
+          store: string
+          user_id: string
+        }
+        Insert: {
+          brand?: string | null
+          created_at?: string
+          id?: string
+          ingredient_id: string
+          observed_on?: string
+          package_qty: number
+          package_unit: string
+          price: number
+          product_name: string
+          store: string
+          user_id?: string
+        }
+        Update: Partial<Database['public']['Tables']['product_prices']['Insert']>
+        Relationships: [Rel]
+      }
       shopping_list_items: {
         Row: {
           id: string
@@ -209,6 +239,8 @@ export type Database = {
           notes: string | null
           quantity: number
           unit: string
+          product_price_id: string | null
+          is_manual: boolean
         }
         Insert: {
           id?: string
@@ -218,6 +250,8 @@ export type Database = {
           notes?: string | null
           quantity: number
           unit: string
+          product_price_id?: string | null
+          is_manual?: boolean
         }
         Update: Partial<Database['public']['Tables']['shopping_list_items']['Insert']>
         Relationships: [Rel, Rel]

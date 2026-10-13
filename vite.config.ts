@@ -39,6 +39,10 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // React + Supabase pesan ~160 kB comprimidos; los módulos ya se cargan por partes
+    chunkSizeWarningLimit: 600,
+  },
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },

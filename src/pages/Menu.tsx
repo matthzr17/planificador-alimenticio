@@ -11,6 +11,7 @@ import type { DietType } from '@/lib/nutrition'
 import { norm } from '@/lib/units'
 import { cn } from '@/lib/utils'
 import { fmtServings, pantryCoverage, RecipeSheet } from '@/components/RecipeSheet'
+import { pantryAfterCooking } from '@/lib/shopping'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -54,7 +55,7 @@ export default function Menu() {
   const [tab, setTab] = useState<'semana' | 'recetario'>('semana')
   const { profile, loading: loadingProfile } = useProfile()
   const { catalog, error: catalogError } = useCatalog()
-  const { items: inventory } = useInventory()
+  const { items: inventory, upsert: upsertPantry } = useInventory()
   const [open, setOpen] = useState<{ recipe: Recipe; servings: number } | null>(null)
 
   return (
@@ -86,7 +87,7 @@ export default function Menu() {
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : tab === 'semana' ? (
-        <Semana profile={profile} catalog={catalog} inventory={inventory} onOpen={(recipe, servings) => setOpen({ recipe, servings })} />
+        <Semana profile={profile} catalog={catalog} inventory={inventory} upsertPantry={upsertPantry} onOpen={(recipe, servings) => setOpen({ recipe, servings })} />
       ) : (
         <Recetario profile={profile} catalog={catalog} inventory={inventory} onOpen={(recipe) => setOpen({ recipe, servings: 1 })} />
       )}
@@ -105,11 +106,13 @@ function Semana({
   catalog,
   inventory,
   onOpen,
+  upsertPantry,
 }: {
   profile: Profile | null
   catalog: Catalog
   inventory: InventoryItem[]
   onOpen: (r: Recipe, servings: number) => void
+  upsertPantry: ReturnType<typeof useInventory>['upsert']
 }) {
   const [now] = useState(() => new Date())
   const thisMonday = useMemo(() => mondayOf(now), [now])
@@ -145,6 +148,26 @@ function Semana({
     if (err) setNotice({ kind: 'error', text: `No se pudo guardar el menú: ${err}` })
     else if (warnings.length) setNotice({ kind: 'warn', text: warnings.join(' ') })
     else setNotice({ kind: 'ok', text: inventory.length ? 'Menú listo. Se priorizó lo que tienes en la despensa.' : 'Menú listo. Agrega tu despensa para que aproveche lo que ya tienes.' })
+  }
+
+  /** Marcar como hecho descuenta los ingredientes de la despensa; desmarcar los regresa. */
+  async function toggleDone(item: MealPlanItem) {
+    const recipe = catalog.recipeById.get(item.recipe_id)
+    const err = await updateItem(item, { is_done: !item.is_done })
+    if (err || !recipe) {
+      if (err) setNotice({ kind: 'error', text: `No se pudo marcar: ${err}` })
+      return
+    }
+    const records = pantryAfterCooking(recipe, Number(item.servings), inventory, catalog.ingredientById, item.is_done ? 1 : -1)
+    for (const r of records) {
+      const e = await upsertPantry({ ingredient_id: r.ingredient_id, quantity: r.quantity, unit: r.unit, is_approximate: r.is_approximate, expires_on: r.expires_on })
+      if (e) {
+        setNotice({ kind: 'error', text: `Se marcó, pero no se pudo actualizar la despensa: ${e}` })
+        return
+      }
+    }
+    if (records.length)
+      setNotice({ kind: 'ok', text: item.is_done ? 'Se regresaron los ingredientes a tu despensa.' : 'Listo. Se descontaron los ingredientes de tu despensa.' })
   }
 
   async function swap(item: MealPlanItem) {
@@ -310,7 +333,7 @@ function Semana({
                       variant={item.is_done ? 'secondary' : 'ghost'}
                       size="sm"
                       aria-pressed={item.is_done}
-                      onClick={() => updateItem(item, { is_done: !item.is_done })}
+                      onClick={() => toggleDone(item)}
                     >
                       <Check />
                       {item.is_done ? 'Hecho' : 'Marcar'}

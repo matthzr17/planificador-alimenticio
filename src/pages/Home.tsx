@@ -1,17 +1,24 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
-import { ChevronRight, LogOut, ShoppingCart, Soup, User, Warehouse } from 'lucide-react'
+import { Check, ChevronRight, LogOut, ShoppingCart, Soup, User, Warehouse } from 'lucide-react'
 import { useAuth } from '@/auth/AuthProvider'
+import { useCatalog } from '@/hooks/useCatalog'
+import { usePlan } from '@/hooks/usePlan'
 import { useProfile } from '@/hooks/useProfile'
 import { DIET_OPTIONS, GOAL_OPTIONS } from '@/lib/catalogs'
+import { isoDate, MEAL_LABEL, mondayOf, type MealType } from '@/lib/planner'
+import { cn } from '@/lib/utils'
+import { InstallHint } from '@/components/InstallHint'
 import { MacroSummary } from '@/components/MacroSummary'
 import { Button } from '@/components/ui/button'
 
 const modulos = [
-  { to: '/perfil', icon: User, title: 'Perfil nutricional', desc: 'Tus datos, objetivo y tipo de dieta', etapa: null },
-  { to: '/despensa', icon: Warehouse, title: 'Despensa', desc: 'Lo que ya tienes en casa', etapa: null },
-  { to: '/menu', icon: Soup, title: 'Menú semanal', desc: 'Recetas según tu tiempo y tu despensa', etapa: null },
-  { to: '/compras', icon: ShoppingCart, title: 'Lista de compras', desc: 'Lo que falta y dónde conviene comprarlo', etapa: 4 },
+  { to: '/perfil', icon: User, title: 'Perfil nutricional', desc: 'Tus datos, objetivo y tipo de dieta' },
+  { to: '/despensa', icon: Warehouse, title: 'Despensa', desc: 'Lo que ya tienes en casa' },
+  { to: '/menu', icon: Soup, title: 'Menú semanal', desc: 'Recetas según tu tiempo y tu despensa' },
+  { to: '/compras', icon: ShoppingCart, title: 'Lista de compras', desc: 'Lo que falta y dónde conviene comprarlo' },
 ]
+const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
 export default function Home() {
   const { signOut } = useAuth()
@@ -34,6 +41,8 @@ export default function Home() {
         </Button>
       </header>
 
+      <InstallHint />
+
       {error && (
         <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           No se pudo cargar tu perfil: {error}
@@ -41,6 +50,7 @@ export default function Home() {
       )}
 
       <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-6">
         {/* El plato del día */}
         {!loading &&
           (tieneObjetivo ? (
@@ -87,6 +97,8 @@ export default function Home() {
               </span>
             </Link>
           ))}
+        {tieneObjetivo && <TodayMeals />}
+        </div>
 
         {/* Módulos */}
         <section className="min-w-0" aria-labelledby="modulos-titulo">
@@ -94,7 +106,7 @@ export default function Home() {
             Módulos
           </h2>
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
-            {modulos.map(({ to, icon: Icon, title, desc, etapa }) => (
+            {modulos.map(({ to, icon: Icon, title, desc }) => (
               <li key={to}>
                 <Link to={to} className="flex min-w-0 items-center gap-4 px-4 py-3.5 transition-colors hover:bg-muted/60 active:bg-muted">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
@@ -104,13 +116,7 @@ export default function Home() {
                     <span className="block truncate font-medium">{title}</span>
                     <span className="block truncate text-sm text-muted-foreground">{desc}</span>
                   </span>
-                  {etapa ? (
-                    <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-accent-foreground">
-                      Próximamente
-                    </span>
-                  ) : (
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  )}
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Link>
               </li>
             ))}
@@ -118,6 +124,62 @@ export default function Home() {
         </section>
       </div>
     </div>
+  )
+}
+
+/** Lo que toca comer hoy según el menú de la semana. */
+function TodayMeals() {
+  const [now] = useState(() => new Date())
+  const { items, loading } = usePlan(isoDate(mondayOf(now)))
+  const { catalog } = useCatalog()
+  if (loading || !catalog) return null
+  const today = items
+    .filter((i) => i.day_of_week === now.getDay())
+    .sort((a, b) => MEAL_ORDER.indexOf(a.meal_type as MealType) - MEAL_ORDER.indexOf(b.meal_type as MealType))
+
+  return (
+    <section className="min-w-0 rounded-xl border bg-card p-5 sm:p-6" aria-labelledby="hoy-titulo">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="hoy-titulo" className="text-lg font-semibold">
+          Hoy en tu menú
+        </h2>
+        <Link to="/menu" className="shrink-0 text-sm font-medium text-primary underline-offset-4 hover:underline">
+          Ver semana
+        </Link>
+      </div>
+      {today.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Aún no hay menú para esta semana.{' '}
+          <Link to="/menu" className="font-medium text-primary underline-offset-4 hover:underline">
+            Generarlo
+          </Link>
+        </p>
+      ) : (
+        <ul className="divide-y">
+          {today.map((it) => {
+            const r = catalog.recipeById.get(it.recipe_id)
+            return (
+              <li key={it.id} className="flex items-center gap-3 py-2.5">
+                <span
+                  className={cn(
+                    'flex size-5 shrink-0 items-center justify-center rounded-full border',
+                    it.is_done ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
+                  )}
+                  aria-label={it.is_done ? 'Hecho' : 'Pendiente'}
+                >
+                  {it.is_done && <Check className="size-3" strokeWidth={3} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs text-muted-foreground">{MEAL_LABEL[it.meal_type as MealType]}</span>
+                  <span className={cn('block truncate font-medium', it.is_done && 'text-muted-foreground line-through')}>{r?.name}</span>
+                </span>
+                <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{Math.round((r?.kcal_serving ?? 0) * Number(it.servings))} kcal</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
   )
 }
 

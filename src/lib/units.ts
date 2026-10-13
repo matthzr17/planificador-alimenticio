@@ -31,6 +31,8 @@ export function formatQty(quantity: number, unit: string): string {
   const fractions: Record<string, string> = { '0.25': '¼', '0.5': '½', '0.75': '¾' }
   const whole = Math.floor(quantity)
   const frac = Math.round((quantity - whole) * 100) / 100
+  // 1,000 g o más se lee mejor en kilos (y ml en litros)
+  if ((unit === 'g' || unit === 'ml') && quantity >= 1000) return formatQty(quantity / 1000, unit === 'g' ? 'kg' : 'l')
   let n: string
   if (unit === 'pza' && fractions[String(frac)]) n = `${whole > 0 ? whole : ''}${fractions[String(frac)]}`
   else if (unit === 'g' || unit === 'ml') n = String(Math.round(quantity))
