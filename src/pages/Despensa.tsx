@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, Plus, Search, Trash2 } from 'lucide-react'
-import { useCatalog, type Ingredient } from '@/hooks/useCatalog'
+import { useCatalog, type Ingredient, type Measure } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
-import { formatQty, norm, unitsFor, type Unit } from '@/lib/units'
+import { formatQty, norm, pieceEquivalent, toGrams, unitsFor, type Unit } from '@/lib/units'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet } from '@/components/ui/sheet'
-import { CATEGORIES, PickIngredientSheet, UnitChips } from '@/components/IngredientPicker'
+import { CATEGORIES, PickIngredientSheet } from '@/components/IngredientPicker'
+import { MeasuresEditor } from '@/components/MeasuresEditor'
+import { normalizeQty, QuantityInput, type QtyUnit } from '@/components/QuantityInput'
 
 
 const DAY_MS = 86_400_000
@@ -137,9 +139,16 @@ export default function Despensa() {
                           {Number(item.quantity) <= 0 ? (
                             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Se terminó</span>
                           ) : (
-                            <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                              {item.is_approximate && '≈ '}
-                              {formatQty(Number(item.quantity), item.unit)}
+                            <span className="shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                              <span className="block">
+                                {item.is_approximate && '≈ '}
+                                {formatQty(Number(item.quantity), item.unit)}
+                              </span>
+                              {item.unit !== 'pza' && (
+                                <span className="block text-xs">
+                                  {pieceEquivalent(toGrams(Number(item.quantity), item.unit, ingredient), catalog?.measuresByIngredient.get(ingredient.id))}
+                                </span>
+                              )}
                             </span>
                           )}
                         </button>
@@ -176,6 +185,8 @@ export default function Despensa() {
         <EditItemSheet
           key={editing.ingredient.id}
           editing={editing}
+          measures={catalog?.measuresByIngredient.get(editing.ingredient.id) ?? []}
+          onMeasuresSaved={reload}
           onClose={() => setEditing(null)}
           onSave={async (values) => {
             const err = await upsert({ ingredient_id: editing.ingredient.id, ...values })
@@ -199,11 +210,15 @@ export default function Despensa() {
 
 function EditItemSheet({
   editing,
+  measures,
+  onMeasuresSaved,
   onClose,
   onSave,
   onDelete,
 }: {
   editing: Editing
+  measures: Measure[]
+  onMeasuresSaved: () => Promise<void>
   onClose: () => void
   onSave: (v: { quantity: number; unit: string; is_approximate: boolean; expires_on: string | null }) => Promise<string | null>
   onDelete?: () => Promise<string | null>
@@ -211,7 +226,7 @@ function EditItemSheet({
   const { ingredient, item } = editing
   const units = unitsFor(ingredient)
   const [quantity, setQuantity] = useState(item ? String(Number(item.quantity)) : '')
-  const [unit, setUnit] = useState<Unit>((item?.unit as Unit) ?? units[0])
+  const [unit, setUnit] = useState<QtyUnit>({ kind: 'unit', unit: (item?.unit as Unit) ?? units[0] })
   const [approx, setApprox] = useState(item?.is_approximate ?? false)
   const [expires, setExpires] = useState(item?.expires_on ?? '')
   const [busy, setBusy] = useState(false)
@@ -243,7 +258,7 @@ function EditItemSheet({
           <Button
             className="ml-auto"
             disabled={!valid || busy}
-            onClick={() => run(() => onSave({ quantity: qty, unit, is_approximate: approx, expires_on: expires || null }))}
+            onClick={() => run(() => onSave({ ...normalizeQty(qty, unit, ingredient), is_approximate: approx, expires_on: expires || null }))}
           >
             {busy && <Loader2 className="animate-spin" />}
             Guardar
@@ -254,8 +269,7 @@ function EditItemSheet({
       <div className="flex flex-col gap-5">
         <div className="grid gap-2">
           <Label htmlFor="qty">Cantidad</Label>
-          <Input id="qty" inputMode="decimal" autoFocus value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" />
-          <UnitChips units={units} value={unit} onChange={setUnit} />
+          <QuantityInput id="qty" autoFocus ingredient={ingredient} measures={measures} quantity={quantity} onQuantity={setQuantity} unit={unit} onUnit={setUnit} />
         </div>
 
         <label className="flex items-center justify-between gap-4 rounded-lg border p-3">
@@ -270,6 +284,8 @@ function EditItemSheet({
           <Label htmlFor="exp">Caduca (opcional)</Label>
           <Input id="exp" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
         </div>
+
+        <MeasuresEditor ingredient={ingredient} measures={measures} onSaved={onMeasuresSaved} />
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

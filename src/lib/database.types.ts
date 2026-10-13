@@ -15,6 +15,30 @@ export type Database = {
   __InternalSupabase: { PostgrestVersion: '14.18' }
   public: {
     Tables: {
+      ingredient_measures: {
+        Row: {
+          created_at: string
+          grams: number
+          id: string
+          ingredient_id: string
+          is_piece: boolean
+          name: string
+          owner_id: string | null
+          plural: string
+        }
+        Insert: {
+          created_at?: string
+          grams: number
+          id?: string
+          ingredient_id: string
+          is_piece?: boolean
+          name: string
+          owner_id?: string | null
+          plural: string
+        }
+        Update: Partial<Database['public']['Tables']['ingredient_measures']['Insert']>
+        Relationships: [Rel]
+      }
       ingredients: {
         Row: {
           carbs_100g: number | null

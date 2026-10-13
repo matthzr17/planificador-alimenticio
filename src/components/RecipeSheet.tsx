@@ -2,9 +2,15 @@ import { Check, Clock, Users } from 'lucide-react'
 import type { Catalog, Recipe } from '@/hooks/useCatalog'
 import type { InventoryItem } from '@/hooks/useInventory'
 import { MEAL_LABEL, type MealType } from '@/lib/planner'
-import { formatQty, toGrams } from '@/lib/units'
+import { formatQty, measureText, toGrams, type MeasureLike } from '@/lib/units'
 import { cn } from '@/lib/utils'
 import { Sheet } from '@/components/ui/sheet'
+
+/** Cantidad con nombre de pieza cuando aplica: "3 huevos" en lugar de "3 pza". */
+function qtyText(q: number, unit: string, measures: MeasureLike[] | undefined) {
+  const piece = measures?.find((m) => m.is_piece)
+  return unit === 'pza' && piece ? measureText(Math.round(q * 4) / 4, piece) : formatQty(q, unit)
+}
 
 const fmtServings = (s: number) => (s === 1 ? '1 porción' : `${String(s).replace('.5', '½').replace(/^0/, '')} porciones`)
 
@@ -92,7 +98,7 @@ export function RecipeSheet({
                     {ok && <Check className="size-3" strokeWidth={3} />}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{ing?.name ?? 'Ingrediente'}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{formatQty(Number(ri.quantity) * factor, ri.unit)}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{qtyText(Number(ri.quantity) * factor, ri.unit, catalog.measuresByIngredient.get(ri.ingredient_id))}</span>
                 </li>
               )
             })}

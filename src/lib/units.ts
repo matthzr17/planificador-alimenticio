@@ -48,3 +48,30 @@ export function norm(s: string): string {
     .toLowerCase()
     .trim()
 }
+
+// ---------- medidas caseras ----------
+
+export type MeasureLike = { id: string; name: string; plural: string; grams: number; is_piece: boolean }
+
+/** "1 rebanada", "3 rebanadas", "1½ tazas". */
+export function measureText(qty: number, m: Pick<MeasureLike, 'name' | 'plural'>): string {
+  const n = formatNumber(qty)
+  return `${n} ${qty > 0 && qty <= 1 ? m.name : m.plural}`
+}
+
+/** Número con medios y cuartos legibles: 1.5 → "1½", 0.25 → "¼". */
+export function formatNumber(n: number): string {
+  const fractions: Record<string, string> = { '0.25': '¼', '0.5': '½', '0.75': '¾' }
+  const whole = Math.floor(n)
+  const frac = Math.round((n - whole) * 100) / 100
+  if (fractions[String(frac)]) return `${whole > 0 ? whole : ''}${fractions[String(frac)]}`
+  return String(Math.round(n * 10) / 10)
+}
+
+/** Equivalencia en piezas para mostrar junto a gramos: "≈ 4 jitomates". Null si no aplica. */
+export function pieceEquivalent(grams: number, measures: MeasureLike[] | undefined): string | null {
+  const piece = measures?.find((m) => m.is_piece)
+  if (!piece || grams <= 0) return null
+  const qty = Math.round((grams / Number(piece.grams)) * 2) / 2
+  return qty > 0 ? `≈ ${measureText(qty, piece)}` : null
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { Check, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, PackageCheck, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { useCatalog, type Catalog, type Ingredient } from '@/hooks/useCatalog'
+import { useCatalog, type Catalog, type Ingredient, type Measure } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan } from '@/hooks/usePlan'
 import { usePrices, useShoppingList, type ProductPrice, type ShoppingItem } from '@/hooks/useShopping'
@@ -14,9 +14,10 @@ import {
   rankOptions,
   STORE_LABEL,
   STORES,
+  type ListLine,
   type OptionEval,
 } from '@/lib/shopping'
-import { formatQty, toGrams, unitsFor, UNIT_LABEL, type Unit } from '@/lib/units'
+import { formatNumber, formatQty, measureText, toGrams, unitsFor, UNIT_LABEL, type Unit } from '@/lib/units'
 import { cn } from '@/lib/utils'
 import { CATEGORIES, PickIngredientSheet } from '@/components/IngredientPicker'
 import { Button } from '@/components/ui/button'
@@ -64,13 +65,35 @@ export default function Compras() {
     setNotice(err ? { kind: 'error', text: `No se pudo actualizar: ${err}` } : { kind: 'ok', text: 'Lista actualizada con tu menú y tu despensa.' })
   }
 
-  // La primera vez que se abre la semana con menú, la lista se arma sola
-  const autoSynced = useRef<string | null>(null)
+  // La lista se mantiene al día sola: si el menú o la despensa cambian, se recalcula.
+  // Compara lo que debería haber contra lo guardado (sin tocar lo palomeado ni lo agregado a mano).
+  const wantedKey = useMemo(() => {
+    const keep = new Set(shopping.items.filter((i) => i.is_checked || i.is_manual).map((i) => i.ingredient_id))
+    return lines
+      .filter((l) => !keep.has(l.ingredient_id))
+      .map((l) => `${l.ingredient_id}:${l.quantity}${l.unit}`)
+      .sort()
+      .join('|')
+  }, [lines, shopping.items])
+  const storedKey = useMemo(
+    () =>
+      shopping.items
+        .filter((i) => !i.is_checked && !i.is_manual)
+        .map((i) => `${i.ingredient_id}:${Number(i.quantity)}${i.unit}`)
+        .sort()
+        .join('|'),
+    [shopping.items],
+  )
+  const syncing = useRef(false)
   useEffect(() => {
-    if (!ready || !plan || shopping.list || autoSynced.current === plan.id || planItems.length === 0) return
-    autoSynced.current = plan.id
-    shopping.sync(lines)
-  }, [ready, plan, shopping, lines, planItems.length])
+    if (!ready || !plan || planItems.length === 0 || syncing.current || wantedKey === storedKey) return
+    syncing.current = true
+    shopping.sync(lines).finally(() => {
+      syncing.current = false
+    })
+  }, [ready, plan, planItems.length, wantedKey, storedKey, shopping, lines])
+
+  const lineByIngredient = useMemo(() => new Map(lines.map((l) => [l.ingredient_id, l])), [lines])
 
   const comparison = useMemo(() => {
     if (!catalog || !prices) return null
@@ -164,7 +187,14 @@ export default function Compras() {
                   <p className="mt-1 text-sm text-muted-foreground">Tu despensa cubre el menú de la semana.</p>
                 </div>
               ) : (
-                <ShoppingGroups items={shopping.items} catalog={catalog!} prices={prices!} onToggle={(i) => shopping.update(i, { is_checked: !i.is_checked })} onOpen={setOpenItem} />
+                <ShoppingGroups
+                  items={shopping.items}
+                  catalog={catalog!}
+                  prices={prices!}
+                  lineByIngredient={lineByIngredient}
+                  onToggle={(i) => shopping.update(i, { is_checked: !i.is_checked })}
+                  onOpen={setOpenItem}
+                />
               )}
             </div>
 
@@ -192,6 +222,7 @@ export default function Compras() {
         <ItemSheet
           key={openItem.id}
           item={shopping.items.find((i) => i.id === openItem.id) ?? openItem}
+          line={lineByIngredient.get(openItem.ingredient_id)}
           catalog={catalog}
           prices={prices}
           onClose={() => setOpenItem(null)}
@@ -249,6 +280,27 @@ function mergeQuantity(current: InventoryItem | undefined, item: ShoppingItem, i
   }
 }
 
+/** "2 jitomates" en lugar de "2 pza" cuando el ingrediente tiene nombre de pieza. */
+function qtyLabel(quantity: number, unit: string, measures: Measure[] | undefined) {
+  const piece = measures?.find((m) => m.is_piece)
+  return unit === 'pza' && piece ? measureText(quantity, piece) : formatQty(quantity, unit)
+}
+
+/** "Necesitas 720 g, tienes 530 g, faltan 190 g (2 jitomates)". En piezas si el ingrediente se cuenta por pieza. */
+export function breakdown(line: ListLine, ing: Ingredient, measures: Measure[] | undefined) {
+  const piece = measures?.find((m) => m.is_piece)
+  const missing = Math.max(0, line.needGrams - line.haveGrams)
+  if (ing.default_unit === 'pza' && piece) {
+    const p = (g: number) => Math.round((g / Number(piece.grams)) * 2) / 2
+    if (p(line.haveGrams) === 0) return `Necesitas ${measureText(p(line.needGrams), piece)}, no tienes`
+    return `Necesitas ${measureText(p(line.needGrams), piece)}, tienes ${formatNumber(p(line.haveGrams))}, faltan ${formatNumber(p(missing))}`
+  }
+  const u = ing.default_unit === 'ml' || ing.default_unit === 'l' ? 'ml' : 'g'
+  const extra = line.unit === 'pza' && piece ? ` (${measureText(line.quantity, piece)})` : ''
+  if (line.haveGrams < 1) return `Necesitas ${formatQty(line.needGrams, u)}, no tienes${extra}`
+  return `Necesitas ${formatQty(line.needGrams, u)}, tienes ${formatQty(line.haveGrams, u)}, faltan ${formatQty(missing, u)}${extra}`
+}
+
 function bestFor(item: ShoppingItem, catalog: Catalog, prices: ProductPrice[]): OptionEval | null {
   const ing = catalog.ingredientById.get(item.ingredient_id)
   const opts = prices.filter((p) => p.ingredient_id === item.ingredient_id)
@@ -262,12 +314,14 @@ function ShoppingGroups({
   items,
   catalog,
   prices,
+  lineByIngredient,
   onToggle,
   onOpen,
 }: {
   items: ShoppingItem[]
   catalog: Catalog
   prices: ProductPrice[]
+  lineByIngredient: Map<string, ListLine>
   onToggle: (i: ShoppingItem) => void
   onOpen: (i: ShoppingItem) => void
 }) {
@@ -287,6 +341,8 @@ function ShoppingGroups({
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {g.rows.map(({ item, ing }) => {
               const best = bestFor(item, catalog, prices)
+              const measures = catalog.measuresByIngredient.get(ing.id)
+              const line = lineByIngredient.get(ing.id)
               return (
                 <li key={item.id} className="flex min-w-0 items-center">
                   <button
@@ -309,11 +365,12 @@ function ShoppingGroups({
                   <button type="button" onClick={() => onOpen(item)} className="flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 text-left">
                     <span className="min-w-0 flex-1">
                       <span className={cn('block truncate font-medium', item.is_checked && 'text-muted-foreground line-through')}>{ing.name}</span>
+                      {line && !item.is_checked && <span className="block text-xs text-muted-foreground">{breakdown(line, ing, measures)}</span>}
                       <span className="block truncate text-xs text-muted-foreground">
                         {best ? `${STORE_LABEL[best.store]}: ${formatMoney(best.total)}` : 'Sin precio, toca para comparar'}
                       </span>
                     </span>
-                    <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{formatQty(Number(item.quantity), item.unit)}</span>
+                    <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{qtyLabel(Number(item.quantity), item.unit, measures)}</span>
                   </button>
                 </li>
               )
@@ -371,6 +428,7 @@ function StoreSummary({ comparison, pending }: { comparison: ReturnType<typeof c
 
 function ItemSheet({
   item,
+  line,
   catalog,
   prices,
   onClose,
@@ -380,6 +438,7 @@ function ItemSheet({
   onRemovePrice,
 }: {
   item: ShoppingItem
+  line?: ListLine
   catalog: Catalog
   prices: ProductPrice[]
   onClose: () => void
@@ -418,7 +477,11 @@ function ItemSheet({
     >
       <div className="flex flex-col gap-6">
         <div className="grid gap-2">
-          <Label htmlFor="buy-qty">Cantidad a comprar ({UNIT_LABEL[item.unit as Unit] ?? item.unit})</Label>
+          {line && <p className="rounded-lg bg-muted p-3 text-sm">{breakdown(line, ing, catalog.measuresByIngredient.get(ing.id))}</p>}
+          <Label htmlFor="buy-qty">
+            Cantidad a comprar (
+            {item.unit === 'pza' ? (catalog.measuresByIngredient.get(ing.id)?.find((m) => m.is_piece)?.plural ?? 'pza') : (UNIT_LABEL[item.unit as Unit] ?? item.unit)})
+          </Label>
           <Input id="buy-qty" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} onBlur={saveQty} />
         </div>
 
