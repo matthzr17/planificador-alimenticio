@@ -33,6 +33,8 @@ type Form = {
   busyMax: number
   freeMax: number
   batchCooking: boolean
+  /** Ajuste de calorías aceptado por tu progreso de peso. */
+  kcalAdjustment: number
 }
 
 const BUSY_MINUTES = [10, 15, 20, 30]
@@ -53,6 +55,7 @@ function fromProfile(p: Profile | null): Form {
     busyMax: p?.busy_day_max_min ?? 15,
     freeMax: p?.free_day_max_min ?? 60,
     batchCooking: p?.batch_cooking ?? true,
+    kcalAdjustment: p?.kcal_adjustment ?? 0,
   }
 }
 
@@ -91,6 +94,7 @@ function evaluate(f: Form) {
       activity: f.activity!,
       goal: f.goal!,
       diet: f.diet!,
+      extraKcal: f.kcalAdjustment,
     })
   }
   return { errors, missing, result, height, weight, bf }
@@ -143,6 +147,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
       busy_day_max_min: form.busyMax,
       free_day_max_min: form.freeMax,
       batch_cooking: form.batchCooking,
+      kcal_adjustment: form.kcalAdjustment,
       target_kcal: result.targetKcal,
       target_protein_g: result.macros.proteinG,
       target_carbs_g: result.macros.carbsG,
@@ -297,7 +302,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
       <aside className="flex min-w-0 flex-col gap-3 xl:sticky xl:top-10">
         <Section title="Tu resultado">
           {result ? (
-            <ResultDetail result={result} />
+            <ResultDetail result={result} kcalAdjustment={form.kcalAdjustment} onClearAdjustment={() => set('kcalAdjustment', 0)} />
           ) : (
             <p className="text-sm text-muted-foreground">Falta: {missing.join(', ') || 'corregir los campos marcados'}.</p>
           )}
@@ -320,7 +325,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
   )
 }
 
-function ResultDetail({ result }: { result: NutritionResult }) {
+function ResultDetail({ result, kcalAdjustment, onClearAdjustment }: { result: NutritionResult; kcalAdjustment: number; onClearAdjustment: () => void }) {
   const bmiLabel = { bajo: 'Bajo peso', normal: 'Normal', sobrepeso: 'Sobrepeso', obesidad: 'Obesidad' }[result.bmiCategory]
   return (
     <div className="grid grid-cols-1 gap-5">
@@ -337,6 +342,17 @@ function ResultDetail({ result }: { result: NutritionResult }) {
         {result.adjustment !== 0 &&
           ` Ajuste por objetivo: ${result.adjustment > 0 ? '+' : '−'}${Math.abs(result.adjustment).toLocaleString('es-MX')} kcal.`}
       </p>
+
+      {kcalAdjustment !== 0 && (
+        <div className="flex items-center gap-3 rounded-md bg-secondary p-3 text-xs text-secondary-foreground">
+          <span className="min-w-0 flex-1">
+            Incluye un ajuste de <strong>{kcalAdjustment > 0 ? '+' : '−'}{Math.abs(kcalAdjustment)} kcal</strong> que aceptaste por tu progreso de peso.
+          </span>
+          <button type="button" onClick={onClearAdjustment} className="shrink-0 font-medium underline-offset-4 hover:underline">
+            Quitar
+          </button>
+        </div>
+      )}
 
       {result.floorApplied && (
         <p className="flex gap-2 rounded-md bg-accent p-3 text-xs text-accent-foreground">

@@ -53,6 +53,8 @@ export type ProfileInput = {
   activity: ActivityLevel
   goal: Goal
   diet: DietType
+  /** Ajuste aceptado a partir del progreso de peso (kcal, + o −). */
+  extraKcal?: number
 }
 
 export type Macros = { proteinG: number; carbsG: number; fatG: number }
@@ -136,7 +138,7 @@ export function calculate(p: ProfileInput): NutritionResult {
   const b = bmr(p)
   const tdee = b.value * ACTIVITY_FACTORS[p.activity]
   const adjustment = goalAdjustment(tdee, p.goal)
-  const raw = round10(tdee + adjustment)
+  const raw = round10(tdee + adjustment + (p.extraKcal ?? 0))
   const floor = KCAL_FLOOR[p.sex]
   const targetKcal = Math.max(raw, floor)
   const macros = macrosFor(targetKcal, p)

@@ -12,6 +12,7 @@ import { describeServing } from '@/lib/servings'
 import { cn } from '@/lib/utils'
 import { InstallHint } from '@/components/InstallHint'
 import { MacroSummary } from '@/components/MacroSummary'
+import { ProgressCard } from '@/components/ProgressCard'
 import { Button } from '@/components/ui/button'
 
 const modulos = [
@@ -24,7 +25,7 @@ const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
 
 export default function Home() {
   const { signOut } = useAuth()
-  const { profile, loading, error } = useProfile()
+  const { profile, loading, error, save } = useProfile()
 
   const nombre = profile?.full_name?.trim().split(' ')[0]
   const tieneObjetivo = profile?.target_kcal != null
@@ -100,6 +101,7 @@ export default function Home() {
             </Link>
           ))}
         {tieneObjetivo && <TodayMeals />}
+        {tieneObjetivo && profile && <ProgressCard profile={profile} saveProfile={save} />}
         </div>
 
         {/* Módulos */}

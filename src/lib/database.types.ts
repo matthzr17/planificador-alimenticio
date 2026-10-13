@@ -141,6 +141,12 @@ export type Database = {
         Update: Partial<Database['public']['Tables']['meal_plans']['Insert']>
         Relationships: []
       }
+      weight_logs: {
+        Row: { id: string; user_id: string; logged_on: string; weight_kg: number; created_at: string }
+        Insert: { id?: string; user_id?: string; logged_on?: string; weight_kg: number; created_at?: string }
+        Update: Partial<Database['public']['Tables']['weight_logs']['Insert']>
+        Relationships: []
+      }
       profiles: {
         Row: {
           activity_level: string | null
@@ -164,6 +170,9 @@ export type Database = {
           updated_at: string
           weight_kg: number | null
           batch_cooking: boolean
+          weekly_budget: number | null
+          kcal_adjustment: number
+          kcal_adjusted_on: string | null
         }
         Insert: {
           activity_level?: string | null
@@ -186,6 +195,9 @@ export type Database = {
           updated_at?: string
           weight_kg?: number | null
           batch_cooking?: boolean
+          weekly_budget?: number | null
+          kcal_adjustment?: number
+          kcal_adjusted_on?: string | null
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
         Relationships: []
