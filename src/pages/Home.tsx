@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button'
 
 const modulos = [
   { to: '/perfil', icon: User, title: 'Perfil nutricional', desc: 'Tus datos, objetivo y tipo de dieta', etapa: null },
-  { to: '/despensa', icon: Warehouse, title: 'Despensa', desc: 'Lo que ya tienes en casa', etapa: 3 },
-  { to: '/menu', icon: Soup, title: 'Menú semanal', desc: 'Recetas según tu tiempo y tu despensa', etapa: 3 },
+  { to: '/despensa', icon: Warehouse, title: 'Despensa', desc: 'Lo que ya tienes en casa', etapa: null },
+  { to: '/menu', icon: Soup, title: 'Menú semanal', desc: 'Recetas según tu tiempo y tu despensa', etapa: null },
   { to: '/compras', icon: ShoppingCart, title: 'Lista de compras', desc: 'Lo que falta y dónde conviene comprarlo', etapa: 4 },
 ]
 

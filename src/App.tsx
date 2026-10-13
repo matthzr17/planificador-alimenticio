@@ -5,6 +5,8 @@ import AppShell from '@/components/AppShell'
 import Home from '@/pages/Home'
 import Login from '@/pages/Login'
 import Perfil from '@/pages/Perfil'
+import Despensa from '@/pages/Despensa'
+import Menu from '@/pages/Menu'
 import Proximamente from '@/pages/Proximamente'
 
 // HashRouter (#/ruta): GitHub Pages no sabe redirigir rutas de una SPA,
@@ -27,8 +29,8 @@ function Rutas() {
       <Route element={<AppShell />}>
         <Route index element={<Home />} />
         <Route path="perfil" element={<Perfil />} />
-        <Route path="despensa" element={<Proximamente titulo="Despensa" etapa={3} />} />
-        <Route path="menu" element={<Proximamente titulo="Menú semanal" etapa={3} />} />
+        <Route path="despensa" element={<Despensa />} />
+        <Route path="menu" element={<Menu />} />
         <Route path="compras" element={<Proximamente titulo="Lista de compras" etapa={4} />} />
         <Route path="*" element={<Home />} />
       </Route>
