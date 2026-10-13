@@ -1,58 +1,70 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
-/* Paleta: verde hoja (primario) sobre neutros cálidos. Tokens compatibles con shadcn/ui. */
+/*
+  Sistema visual "Mercado"
+  - Hoja #2F6B4F (marca, proteína) · Mango #E8A33D (carbohidratos) · Agua #2B7A9B (grasa)
+  - Fondo salvia muy claro, tinta verde-negra. Modo oscuro automático según el teléfono.
+  - Bricolage Grotesque solo para títulos y cifras; el texto usa la fuente del sistema (SF en iPhone).
+*/
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.975 0.006 120);
-  --foreground: oklch(0.22 0.02 150);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.02 150);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.02 150);
-  --primary: oklch(0.47 0.09 158);
-  --primary-foreground: oklch(0.985 0.005 150);
-  --secondary: oklch(0.94 0.015 140);
-  --secondary-foreground: oklch(0.3 0.04 155);
-  --muted: oklch(0.95 0.008 120);
-  --muted-foreground: oklch(0.5 0.02 150);
-  --accent: oklch(0.93 0.04 85);
-  --accent-foreground: oklch(0.35 0.06 70);
-  --destructive: oklch(0.58 0.2 27);
-  --border: oklch(0.9 0.01 130);
-  --input: oklch(0.88 0.012 130);
-  --ring: oklch(0.47 0.09 158);
+  --radius: 0.875rem;
+  --background: #f4f6f2;
+  --foreground: #17231c;
+  --card: #ffffff;
+  --card-foreground: #17231c;
+  --popover: #ffffff;
+  --popover-foreground: #17231c;
+  --primary: #2f6b4f;
+  --primary-foreground: #f4f6f2;
+  --secondary: #e4ece4;
+  --secondary-foreground: #1f4a36;
+  --muted: #ebefe9;
+  --muted-foreground: #5e6e64;
+  --accent: #fbefd6;
+  --accent-foreground: #7a4e0b;
+  --destructive: #c23b2a;
+  --border: #dde3da;
+  --input: #cdd6cb;
+  --ring: #2f6b4f;
+  --protein: #2f6b4f;
+  --carbs: #e8a33d;
+  --fat: #2b7a9b;
 }
 
-.dark {
-  --background: oklch(0.18 0.012 160);
-  --foreground: oklch(0.95 0.006 120);
-  --card: oklch(0.22 0.014 160);
-  --card-foreground: oklch(0.95 0.006 120);
-  --popover: oklch(0.22 0.014 160);
-  --popover-foreground: oklch(0.95 0.006 120);
-  --primary: oklch(0.72 0.12 158);
-  --primary-foreground: oklch(0.18 0.02 160);
-  --secondary: oklch(0.28 0.02 160);
-  --secondary-foreground: oklch(0.92 0.01 140);
-  --muted: oklch(0.26 0.012 160);
-  --muted-foreground: oklch(0.7 0.015 140);
-  --accent: oklch(0.33 0.04 85);
-  --accent-foreground: oklch(0.92 0.04 85);
-  --destructive: oklch(0.68 0.19 25);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.72 0.12 158);
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #101814;
+    --foreground: #e8eee9;
+    --card: #17221b;
+    --card-foreground: #e8eee9;
+    --popover: #17221b;
+    --popover-foreground: #e8eee9;
+    --primary: #6fc39a;
+    --primary-foreground: #0e1a13;
+    --secondary: #1f2d25;
+    --secondary-foreground: #cfe3d6;
+    --muted: #1b2620;
+    --muted-foreground: #93a69a;
+    --accent: #3a2e14;
+    --accent-foreground: #f3d28e;
+    --destructive: #f07a69;
+    --border: rgb(255 255 255 / 0.09);
+    --input: rgb(255 255 255 / 0.14);
+    --ring: #6fc39a;
+    --protein: #6fc39a;
+    --carbs: #f0b657;
+    --fat: #5bb3d6;
+  }
 }
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 6px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -71,6 +83,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-protein: var(--protein);
+  --color-carbs: var(--carbs);
+  --color-fat: var(--fat);
 }
 
 @layer base {
@@ -79,10 +94,22 @@
   }
   html {
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light dark;
   }
   body {
-    @apply bg-background text-foreground antialiased;
-    /* Evita el rebote/zoom raro en iOS cuando la app corre a pantalla completa */
+    @apply bg-background font-sans text-foreground antialiased;
     overscroll-behavior-y: none;
+  }
+  h1, h2, h3 {
+    @apply font-display;
+    text-wrap: balance;
+  }
+  /* Respeta "Reducir movimiento" del sistema */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

@@ -10,18 +10,19 @@ export function OptionGroup<T extends string>({
   value,
   options,
   onChange,
-  columns = 1,
+  className,
   renderExtra,
 }: {
   label: string
   value: T | null
   options: Option<T>[]
   onChange: (value: T) => void
-  columns?: 1 | 2 | 3
+  /** Clases de columnas; usar container queries (@sm:, @md:) para que dependan del ancho de la tarjeta */
+  className?: string
   renderExtra?: (option: Option<T>, selected: boolean) => ReactNode
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn('grid gap-2', columns === 2 && 'grid-cols-2', columns === 3 && 'grid-cols-3')}>
+    <div role="radiogroup" aria-label={label} className={cn('grid grid-cols-1 gap-2', className)}>
       {options.map((opt) => {
         const selected = opt.value === value
         return (

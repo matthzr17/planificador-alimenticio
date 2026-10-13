@@ -149,13 +149,34 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
     setStatus(error ? { kind: 'error', text: `No se pudo guardar: ${error}` } : { kind: 'ok', text: 'Perfil guardado' })
   }
 
+  const statusLine = status ? (
+    <span className={cn('flex items-center gap-1.5', status.kind === 'ok' ? 'text-primary' : 'text-destructive')}>
+      {status.kind === 'ok' ? <CheckCircle2 className="size-4 shrink-0" /> : <AlertTriangle className="size-4 shrink-0" />}
+      {status.text}
+    </span>
+  ) : result ? (
+    <span className="font-medium tabular-nums">{result.targetKcal.toLocaleString('es-MX')} kcal / día</span>
+  ) : (
+    <span className="text-muted-foreground">Completa tu perfil</span>
+  )
+
+  const saveButton = (
+    <Button onClick={handleSave} disabled={!result || saving} className="shrink-0">
+      {saving && <Loader2 className="animate-spin" />}
+      Guardar
+    </Button>
+  )
+
   return (
-    <div className="grid gap-5 pb-24">
+    <div className="flex min-w-0 flex-col gap-5 pb-24 xl:pb-0">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Perfil nutricional</h1>
+        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Perfil nutricional</h1>
         <p className="text-sm text-muted-foreground">Con estos datos se calculan tus calorías y macros diarios.</p>
       </header>
 
+      {/* Una columna hasta pantallas anchas; en escritorio grande, formulario + resultado fijo a la derecha */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+      <div className="flex min-w-0 flex-col gap-5">
       <Section title="Tus datos">
         <Field label="Nombre" htmlFor="name">
           <Input id="name" autoComplete="given-name" value={form.fullName} onChange={(e) => set('fullName', e.target.value)} />
@@ -164,7 +185,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
         <Field label="Sexo">
           <OptionGroup
             label="Sexo"
-            columns={2}
+            className="grid-cols-2"
             value={form.sex}
             onChange={(v) => set('sex', v)}
             options={[
@@ -198,11 +219,11 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
       </Section>
 
       <Section title="Actividad física">
-        <OptionGroup label="Actividad física" value={form.activity} options={ACTIVITY_OPTIONS} onChange={(v) => set('activity', v)} />
+        <OptionGroup label="Actividad física" className="@md:grid-cols-2" value={form.activity} options={ACTIVITY_OPTIONS} onChange={(v) => set('activity', v)} />
       </Section>
 
       <Section title="Objetivo">
-        <OptionGroup label="Objetivo" value={form.goal} options={GOAL_OPTIONS} onChange={(v) => set('goal', v)} />
+        <OptionGroup label="Objetivo" className="@lg:grid-cols-3" value={form.goal} options={GOAL_OPTIONS} onChange={(v) => set('goal', v)} />
       </Section>
 
       <Section title="Tipo de dieta" description="Toca una opción para ver sus beneficios y riesgos.">
@@ -215,7 +236,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
             if (!selected) return null
             const info = DIET_OPTIONS.find((d) => d.value === opt.value)!
             return (
-              <div className="grid gap-3 border-t px-3 py-3 text-xs">
+              <div className="grid grid-cols-1 gap-3 border-t px-3 py-3 text-xs">
                 <ProsCons title="A favor" items={info.pros} tone="good" />
                 <ProsCons title="A considerar" items={info.cons} tone="warn" />
               </div>
@@ -259,33 +280,28 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
         </Field>
       </Section>
 
-      <Section title="Tu resultado">
-        {result ? (
-          <ResultDetail result={result} />
-        ) : (
-          <p className="text-sm text-muted-foreground">Falta: {missing.join(', ') || 'corregir los campos marcados'}.</p>
-        )}
-      </Section>
+      </div>
 
-      {/* Barra de guardado fija, encima de las pestañas */}
-      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4rem)] z-10 border-t bg-card/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-lg items-center gap-3 px-5 py-3">
-          <div className="min-w-0 flex-1 text-sm">
-            {status ? (
-              <span className={cn('flex items-center gap-1.5', status.kind === 'ok' ? 'text-primary' : 'text-destructive')}>
-                {status.kind === 'ok' ? <CheckCircle2 className="size-4" /> : <AlertTriangle className="size-4" />}
-                {status.text}
-              </span>
-            ) : result ? (
-              <span className="font-medium tabular-nums">{result.targetKcal.toLocaleString('es-MX')} kcal / día</span>
-            ) : (
-              <span className="text-muted-foreground">Completa tu perfil</span>
-            )}
-          </div>
-          <Button onClick={handleSave} disabled={!result || saving}>
-            {saving && <Loader2 className="animate-spin" />}
-            Guardar
-          </Button>
+      <aside className="flex min-w-0 flex-col gap-3 xl:sticky xl:top-10">
+        <Section title="Tu resultado">
+          {result ? (
+            <ResultDetail result={result} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Falta: {missing.join(', ') || 'corregir los campos marcados'}.</p>
+          )}
+        </Section>
+        <div className="hidden items-center gap-3 rounded-xl border bg-card p-4 text-sm xl:flex">
+          <div className="min-w-0 flex-1">{statusLine}</div>
+          {saveButton}
+        </div>
+      </aside>
+      </div>
+
+      {/* Barra de guardado fija: encima de las pestañas en teléfono; al pie (junto a la barra lateral) en tablet */}
+      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4rem)] z-10 border-t bg-card/95 backdrop-blur-md md:bottom-0 md:left-60 md:pb-[env(safe-area-inset-bottom)] lg:left-64 xl:hidden">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:px-6 md:px-10">
+          <div className="min-w-0 flex-1 text-sm">{statusLine}</div>
+          {saveButton}
         </div>
       </div>
     </div>
@@ -295,7 +311,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
 function ResultDetail({ result }: { result: NutritionResult }) {
   const bmiLabel = { bajo: 'Bajo peso', normal: 'Normal', sobrepeso: 'Sobrepeso', obesidad: 'Obesidad' }[result.bmiCategory]
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 gap-5">
       <MacroSummary kcal={result.targetKcal} macros={result.macros} />
 
       <dl className="grid grid-cols-3 gap-2 rounded-lg bg-muted p-3 text-center">
@@ -323,7 +339,7 @@ function ResultDetail({ result }: { result: NutritionResult }) {
 
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="grid gap-0.5">
+    <div className="grid grid-cols-1 gap-0.5">
       <dt className="text-[11px] leading-tight text-muted-foreground">{label}</dt>
       <dd className="text-base font-semibold tabular-nums">{value}</dd>
       <dd className="text-[11px] text-muted-foreground">{sub}</dd>
@@ -338,7 +354,7 @@ function Section({ title, description, children }: { title: string; description?
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="grid gap-4">{children}</CardContent>
+      <CardContent className="@container grid grid-cols-1 gap-4">{children}</CardContent>
     </Card>
   )
 }
@@ -357,7 +373,7 @@ function Field({
   children: ReactNode
 }) {
   return (
-    <div className="grid gap-2">
+    <div className="grid grid-cols-1 gap-2">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       {error ? (
@@ -395,7 +411,7 @@ function ProsCons({ title, items, tone }: { title: string; items: string[]; tone
   return (
     <div>
       <p className={cn('mb-1 font-medium', tone === 'good' ? 'text-primary' : 'text-accent-foreground')}>{title}</p>
-      <ul className="grid gap-1 text-muted-foreground">
+      <ul className="grid grid-cols-1 gap-1 text-muted-foreground">
         {items.map((t) => (
           <li key={t} className="flex gap-1.5">
             <span aria-hidden>•</span>
