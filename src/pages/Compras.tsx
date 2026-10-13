@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { Check, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, PackageCheck, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, CloudOff, ExternalLink, Info, Loader2, PackageCheck, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useCatalog, type Catalog, type Ingredient, type Measure } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan } from '@/hooks/usePlan'
@@ -21,6 +21,7 @@ import {
 } from '@/lib/shopping'
 import { formatNumber, formatQty, measureText, toGrams, unitsFor, UNIT_LABEL, type Unit } from '@/lib/units'
 import { cn } from '@/lib/utils'
+import { usePendingCount, useOnline } from '@/lib/offline'
 import { CATEGORIES, PickIngredientSheet } from '@/components/IngredientPicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,6 +47,8 @@ export default function Compras() {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [openItem, setOpenItem] = useState<ShoppingItem | null>(null)
   const [picking, setPicking] = useState(false)
+  const online = useOnline()
+  const pending = usePendingCount()
 
   const ready = catalog && inventory && prices && !loadingPlan && !shopping.loading
 
@@ -88,12 +91,13 @@ export default function Compras() {
   )
   const syncing = useRef(false)
   useEffect(() => {
-    if (!ready || !plan || planItems.length === 0 || syncing.current || wantedKey === storedKey) return
+    // Sin señal no se recalcula: se respeta la lista guardada en el teléfono
+    if (!online || shopping.offline || !ready || !plan || planItems.length === 0 || syncing.current || wantedKey === storedKey) return
     syncing.current = true
     shopping.sync(lines).finally(() => {
       syncing.current = false
     })
-  }, [ready, plan, planItems.length, wantedKey, storedKey, shopping, lines])
+  }, [online, ready, plan, planItems.length, wantedKey, storedKey, shopping, lines])
 
   const lineByIngredient = useMemo(() => new Map(lines.map((l) => [l.ingredient_id, l])), [lines])
 
@@ -161,6 +165,21 @@ export default function Compras() {
         </div>
       ) : (
         <>
+          {(!online || shopping.offline || pending > 0) && (
+            <p role="status" className="flex gap-2 rounded-lg border border-carbs/40 bg-accent p-3 text-sm text-accent-foreground">
+              <CloudOff className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {!online || shopping.offline ? (
+                  <>
+                    <strong>Sin señal.</strong> Puedes seguir palomeando; se guarda en tu teléfono
+                  </>
+                ) : (
+                  <>Enviando cambios guardados sin señal</>
+                )}
+                {pending > 0 && ` (${pending} ${pending === 1 ? 'cambio pendiente' : 'cambios pendientes'})`}. Se sincroniza solo al volver la conexión.
+              </span>
+            </p>
+          )}
           {notice && (
             <p role="status" className={cn('flex gap-2 rounded-lg p-3 text-sm', notice.kind === 'ok' ? 'bg-secondary text-secondary-foreground' : 'bg-destructive/10 text-destructive')}>
               <Info className="mt-0.5 size-4 shrink-0" />
@@ -176,11 +195,11 @@ export default function Compras() {
                   {shopping.items.length} artículos
                   {checked.length > 0 && `, ${checked.length} en el carrito`}
                 </p>
-                <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
+                <Button variant="outline" size="sm" onClick={() => setPicking(true)} disabled={!online}>
                   <Plus />
                   Agregar
                 </Button>
-                <Button variant="outline" size="sm" onClick={refresh} disabled={busy}>
+                <Button variant="outline" size="sm" onClick={refresh} disabled={busy || !online}>
                   {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                   Actualizar
                 </Button>
@@ -213,7 +232,7 @@ export default function Compras() {
                 <p className="min-w-0 flex-1 text-sm">
                   <span className="font-medium">{checked.length}</span> {checked.length === 1 ? 'comprado' : 'comprados'}
                 </p>
-                <Button onClick={moveToPantry} disabled={busy}>
+                <Button onClick={moveToPantry} disabled={busy || !online} title={online ? undefined : 'Necesitas conexión'}>
                   {busy ? <Loader2 className="animate-spin" /> : <PackageCheck />}
                   Pasar a la despensa
                 </Button>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { cacheGet, cacheSet, isNetworkError } from '@/lib/offline'
 import type { Tables, TablesUpdate } from '@/lib/database.types'
 import { useAuth } from '@/auth/AuthProvider'
 
@@ -22,8 +23,13 @@ export function useProfile() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (cancelled) return
-        if (error) setError(error.message)
-        else setProfile(data)
+        const cached = error ? cacheGet<Profile>('profile') : null
+        if (error && cached && isNetworkError(error.message)) setProfile(cached)
+        else if (error) setError(error.message)
+        else {
+          setProfile(data)
+          if (data) cacheSet('profile', data)
+        }
         setLoading(false)
       })
     return () => {
@@ -35,8 +41,9 @@ export function useProfile() {
     async (changes: TablesUpdate<'profiles'>) => {
       if (!userId) return { error: 'Sin sesión' }
       const { data, error } = await supabase.from('profiles').update(changes).eq('id', userId).select('*').single()
-      if (error) return { error: error.message }
+      if (error) return { error: isNetworkError(error.message) ? 'Necesitas conexión para guardar el perfil.' : error.message }
       setProfile(data)
+      cacheSet('profile', data)
       return { error: null }
     },
     [userId],

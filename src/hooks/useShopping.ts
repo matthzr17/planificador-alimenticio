@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { applyPending, cacheGet, cacheSet, dropPending, enqueue, flushQueue, isNetworkError, isOffline } from '@/lib/offline'
 import type { Tables, TablesInsert } from '@/lib/database.types'
 import type { ListLine } from '@/lib/shopping'
 
@@ -7,14 +8,22 @@ export type ShoppingList = Tables<'shopping_lists'>
 export type ShoppingItem = Tables<'shopping_list_items'>
 export type ProductPrice = Tables<'product_prices'>
 
-type Loaded = { planId: string | null; list: ShoppingList | null; items: ShoppingItem[]; error: string | null }
+type Loaded = { planId: string | null; list: ShoppingList | null; items: ShoppingItem[]; error: string | null; offline?: boolean }
 
 async function fetchList(planId: string): Promise<Loaded> {
+  const fallback = (message: string): Loaded => {
+    const cached = cacheGet<{ list: ShoppingList | null; items: ShoppingItem[] }>(`list:${planId}`)
+    if (cached && isNetworkError(message))
+      return { planId, ...cached, items: applyPending('shopping_list_items', cached.items), error: null, offline: true }
+    return { planId, list: null, items: [], error: message }
+  }
   const { data: list, error } = await supabase.from('shopping_lists').select('*').eq('meal_plan_id', planId).maybeSingle()
-  if (error) return { planId, list: null, items: [], error: error.message }
+  if (error) return fallback(error.message)
   if (!list) return { planId, list: null, items: [], error: null }
   const its = await supabase.from('shopping_list_items').select('*').eq('list_id', list.id)
-  return { planId, list, items: its.data ?? [], error: its.error?.message ?? null }
+  if (its.error) return fallback(its.error.message)
+  // Lo que todavía no se envía (palomitas sin señal) se muestra encima de lo que dice el servidor
+  return { planId, list, items: applyPending('shopping_list_items', its.data ?? []), error: null }
 }
 
 /** Lista de compras ligada a un plan semanal. */
@@ -24,13 +33,30 @@ export function useShoppingList(planId: string | null) {
   useEffect(() => {
     if (!planId) return
     let cancelled = false
-    fetchList(planId).then((r) => !cancelled && setState(r))
+    // Primero envía lo pendiente para no pisarlo con datos viejos
+    flushQueue()
+      .catch(() => 0)
+      .then(() => fetchList(planId))
+      .then((r) => !cancelled && setState(r))
+    // Al volver la señal: enviar la cola y releer la lista
+    const onOnline = () =>
+      flushQueue()
+        .catch(() => 0)
+        .then(() => fetchList(planId))
+        .then((r) => !cancelled && setState(r))
+    window.addEventListener('online', onOnline)
     return () => {
       cancelled = true
+      window.removeEventListener('online', onOnline)
     }
   }, [planId])
 
   const current = planId && state?.planId === planId ? state : null
+
+  // Copia local de la lista tal como se ve (incluye palomitas hechas sin señal)
+  useEffect(() => {
+    if (state?.planId && !state.error) cacheSet(`list:${state.planId}`, { list: state.list, items: state.items })
+  }, [state])
 
   async function ensureList(): Promise<ShoppingList | string> {
     if (current?.list) return current.list
@@ -73,7 +99,15 @@ export function useShoppingList(planId: string | null) {
   const update = useCallback(async (item: ShoppingItem, changes: Partial<Pick<ShoppingItem, 'is_checked' | 'quantity' | 'unit' | 'product_price_id'>>) => {
     const put = (v: ShoppingItem) => setState((s) => (s ? { ...s, items: s.items.map((i) => (i.id === item.id ? v : i)) } : s))
     put({ ...item, ...changes })
+    if (isOffline()) {
+      enqueue({ table: 'shopping_list_items', id: item.id, changes })
+      return null
+    }
     const { error } = await supabase.from('shopping_list_items').update(changes).eq('id', item.id)
+    if (error && isNetworkError(error.message)) {
+      enqueue({ table: 'shopping_list_items', id: item.id, changes })
+      return null
+    }
     if (error) {
       put(item)
       return error.message
@@ -99,7 +133,8 @@ export function useShoppingList(planId: string | null) {
   const removeItems = useCallback(async (ids: string[]) => {
     if (!ids.length) return null
     const { error } = await supabase.from('shopping_list_items').delete().in('id', ids)
-    if (error) return error.message
+    if (error) return isNetworkError(error.message) ? 'Necesitas conexión para quitar artículos.' : error.message
+    dropPending('shopping_list_items', ids)
     setState((s) => (s ? { ...s, items: s.items.filter((i) => !ids.includes(i.id)) } : s))
     return null
   }, [])
@@ -109,6 +144,8 @@ export function useShoppingList(planId: string | null) {
     items: current?.items ?? [],
     loading: !!planId && !current,
     error: current?.error ?? null,
+    /** La lista viene de la copia del teléfono (no hubo conexión al cargar). */
+    offline: !!current?.offline,
     sync,
     update,
     addManual,
@@ -129,8 +166,13 @@ export function usePrices() {
       .order('observed_on', { ascending: false })
       .then(({ data, error }) => {
         if (cancelled) return
-        if (error) setError(error.message)
-        else setPrices(data)
+        const cached = error ? cacheGet<ProductPrice[]>('prices') : null
+        if (error && cached && isNetworkError(error.message)) setPrices(cached)
+        else if (error) setError(error.message)
+        else {
+          setPrices(data)
+          cacheSet('prices', data)
+        }
       })
     return () => {
       cancelled = true

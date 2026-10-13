@@ -1,33 +1,44 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { cacheGet, cacheSet, isNetworkError } from '@/lib/offline'
 import type { Tables, TablesInsert } from '@/lib/database.types'
 
 export type InventoryItem = Tables<'inventory'>
+
+async function fetchInventory(): Promise<{ items: InventoryItem[]; error: string | null }> {
+  const { data, error } = await supabase.from('inventory').select('*')
+  if (!error) return { items: data, error: null }
+  const cached = cacheGet<InventoryItem[]>('inventory')
+  if (cached && isNetworkError(error.message)) return { items: cached, error: null }
+  return { items: [], error: error.message }
+}
 
 export function useInventory() {
   const [items, setItems] = useState<InventoryItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const { data, error } = await supabase.from('inventory').select('*')
-    if (error) setError(error.message)
-    else setItems(data)
+    const r = await fetchInventory()
+    if (r.error) setError(r.error)
+    else setItems(r.items)
   }, [])
 
   useEffect(() => {
     let cancelled = false
-    supabase
-      .from('inventory')
-      .select('*')
-      .then(({ data, error }) => {
-        if (cancelled) return
-        if (error) setError(error.message)
-        else setItems(data)
-      })
+    fetchInventory().then((r) => {
+      if (cancelled) return
+      if (r.error) setError(r.error)
+      else setItems(r.items)
+    })
     return () => {
       cancelled = true
     }
   }, [])
+
+  // La copia local siempre refleja lo último que se ve en pantalla
+  useEffect(() => {
+    if (items) cacheSet('inventory', items)
+  }, [items])
 
   /** Crea o reemplaza el registro de un ingrediente (uno por ingrediente). */
   const upsert = useCallback(async (row: Omit<TablesInsert<'inventory'>, 'user_id'>) => {

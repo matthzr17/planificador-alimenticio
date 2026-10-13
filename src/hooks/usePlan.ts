@@ -1,19 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { applyPending, cacheGet, cacheSet, enqueue, isNetworkError } from '@/lib/offline'
 import type { Tables } from '@/lib/database.types'
 import type { PlanItem } from '@/lib/planner'
 
 export type MealPlan = Tables<'meal_plans'>
 export type MealPlanItem = Tables<'meal_plan_items'>
 
-type Loaded = { week: string; plan: MealPlan | null; items: MealPlanItem[]; error: string | null }
+type Loaded = { week: string; plan: MealPlan | null; items: MealPlanItem[]; error: string | null; offline?: boolean }
 
 async function fetchWeek(week: string): Promise<Loaded> {
+  const fallback = (message: string): Loaded => {
+    const cached = cacheGet<{ plan: MealPlan | null; items: MealPlanItem[] }>(`plan:${week}`)
+    if (cached && isNetworkError(message)) return { week, ...cached, items: applyPending('meal_plan_items', cached.items), error: null, offline: true }
+    return { week, plan: null, items: [], error: message }
+  }
   const { data: plan, error } = await supabase.from('meal_plans').select('*').eq('week_start', week).maybeSingle()
-  if (error) return { week, plan: null, items: [], error: error.message }
-  if (!plan) return { week, plan: null, items: [], error: null }
+  if (error) return fallback(error.message)
+  if (!plan) {
+    cacheSet(`plan:${week}`, { plan: null, items: [] })
+    return { week, plan: null, items: [], error: null }
+  }
   const its = await supabase.from('meal_plan_items').select('*').eq('meal_plan_id', plan.id)
-  return { week, plan, items: its.data ?? [], error: its.error?.message ?? null }
+  if (its.error) return fallback(its.error.message)
+  cacheSet(`plan:${week}`, { plan, items: its.data })
+  return { week, plan, items: applyPending('meal_plan_items', its.data ?? []), error: null }
 }
 
 /** Plan de una semana (identificada por la fecha de su domingo, AAAA-MM-DD). */
@@ -59,6 +70,11 @@ export function usePlan(weekStart: string) {
       setState((s) => (s ? { ...s, items: s.items.map((it) => (it.id === item.id ? value : it)) } : s))
     put({ ...item, ...changes }) // optimista: la UI responde al instante
     const { error } = await supabase.from('meal_plan_items').update(changes).eq('id', item.id)
+    if (error && isNetworkError(error.message)) {
+      // Sin señal: se guarda y se envía al volver la conexión
+      enqueue({ table: 'meal_plan_items', id: item.id, changes })
+      return null
+    }
     if (error) {
       put(item)
       return error.message

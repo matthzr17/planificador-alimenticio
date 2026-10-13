@@ -10,16 +10,34 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
 
+const STORAGE_KEY = 'sb-xhioalpsrlvzxsupogtk-auth-token'
+
+function storedSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const s = raw ? (JSON.parse(raw) as Session) : null
+    return s?.user ? s : null
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
+      // Sin conexión, si el token venció no se puede renovar: se usa la sesión guardada para ver la copia local.
+      // Al volver la señal, Supabase la renueva sola.
+      setSession(data.session ?? (typeof navigator !== 'undefined' && !navigator.onLine ? storedSession() : null))
       setLoading(false)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+      // Un fallo de renovación sin señal no debe sacar al usuario; solo un cierre de sesión explícito
+      if (!next && event !== 'SIGNED_OUT' && typeof navigator !== 'undefined' && !navigator.onLine) return
+      setSession(next)
+    })
     return () => sub.subscription.unsubscribe()
   }, [])
 

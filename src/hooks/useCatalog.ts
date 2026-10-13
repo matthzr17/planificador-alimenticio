@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { cacheGet, cacheSet } from '@/lib/offline'
 import type { Tables } from '@/lib/database.types'
 
 export type Ingredient = Tables<'ingredients'>
@@ -39,6 +40,9 @@ export function mergeMeasures(rows: Measure[]): Map<string, Measure[]> {
   return out
 }
 
+type RawCatalog = { ing: Ingredient[]; rec: Tables<'recipes'>[]; ri: RecipeIngredient[]; me: Measure[] }
+
+/** Descarga el catálogo; sin conexión usa la última copia guardada en el teléfono. */
 async function load(): Promise<Catalog> {
   const [ing, rec, ri, me] = await Promise.all([
     supabase.from('ingredients').select('*').order('name'),
@@ -47,7 +51,21 @@ async function load(): Promise<Catalog> {
     supabase.from('ingredient_measures').select('*'),
   ])
   const error = ing.error ?? rec.error ?? ri.error ?? me.error
-  if (error) throw new Error(error.message)
+  if (error) {
+    const cached = cacheGet<RawCatalog>('catalog')
+    if (cached) return build(cached)
+    throw new Error(error.message)
+  }
+  const raw: RawCatalog = { ing: ing.data ?? [], rec: rec.data ?? [], ri: ri.data ?? [], me: me.data ?? [] }
+  cacheSet('catalog', raw)
+  return build(raw)
+}
+
+function build({ ing: ingRows, rec: recRows, ri: riRows, me: meRows }: RawCatalog): Catalog {
+  const ing = { data: ingRows }
+  const rec = { data: recRows }
+  const ri = { data: riRows }
+  const me = { data: meRows }
 
   const byRecipe = new Map<string, RecipeIngredient[]>()
   for (const row of ri.data ?? []) {
