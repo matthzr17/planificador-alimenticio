@@ -8,9 +8,11 @@ import { usePrices, useShoppingList, type ProductPrice, type ShoppingItem } from
 import { isoDate, weekStartOf } from '@/lib/planner'
 import {
   buildShoppingList,
+  chosenOption,
   compareStores,
   formatMoney,
   planNeeds,
+  purchaseGrams,
   rankOptions,
   STORE_LABEL,
   STORES,
@@ -113,7 +115,10 @@ export default function Compras() {
       const ing = catalog.ingredientById.get(it.ingredient_id)
       if (!ing) continue
       const current = inventory.find((p) => p.ingredient_id === it.ingredient_id)
-      const err = await upsertPantry(mergeQuantity(current, it, ing))
+      // Si se compra en una presentación con precio, entra a casa el paquete completo (el sobrante queda en la despensa)
+      const opt = chosenFor(it, catalog, prices ?? [])
+      const grams = opt ? purchaseGrams(opt, gramsOf(it, catalog), ing).bought : gramsOf(it, catalog)
+      const err = await upsertPantry(mergeQuantity(current, it.ingredient_id, grams, ing))
       if (err) {
         setBusy(false)
         setNotice({ kind: 'error', text: `No se pudo pasar ${ing.name} a la despensa: ${err}` })
@@ -266,14 +271,18 @@ function gramsOf(item: ShoppingItem, catalog: Catalog) {
   return ing ? toGrams(Number(item.quantity), item.unit, ing) : 0
 }
 
-/** Suma lo comprado a lo que ya había, en la unidad del registro existente. */
-function mergeQuantity(current: InventoryItem | undefined, item: ShoppingItem, ing: Ingredient) {
-  if (!current) return { ingredient_id: item.ingredient_id, quantity: Number(item.quantity), unit: item.unit, is_approximate: false, expires_on: null }
-  const boughtGrams = toGrams(Number(item.quantity), item.unit, ing)
+/** Suma lo comprado (en gramos) a lo que ya había, en la unidad del registro existente. */
+function mergeQuantity(current: InventoryItem | undefined, ingredientId: string, boughtGrams: number, ing: Ingredient) {
+  const round2 = (n: number) => Math.round(n * 100) / 100
+  if (!current) {
+    // Registro nuevo en la unidad base del ingrediente
+    const unit = ing.default_unit === 'pza' && ing.grams_per_unit ? 'pza' : ing.default_unit === 'ml' || ing.default_unit === 'l' ? 'ml' : 'g'
+    return { ingredient_id: ingredientId, quantity: round2(boughtGrams / toGrams(1, unit, ing)), unit, is_approximate: false, expires_on: null }
+  }
   const perUnit = toGrams(1, current.unit, ing)
   return {
-    ingredient_id: item.ingredient_id,
-    quantity: Math.round((Number(current.quantity) + boughtGrams / perUnit) * 100) / 100,
+    ingredient_id: ingredientId,
+    quantity: round2(Number(current.quantity) + boughtGrams / perUnit),
     unit: current.unit,
     is_approximate: current.is_approximate,
     expires_on: current.expires_on,
@@ -301,11 +310,29 @@ export function breakdown(line: ListLine, ing: Ingredient, measures: Measure[] |
   return `Necesitas ${formatQty(line.needGrams, u)}, tienes ${formatQty(line.haveGrams, u)}, faltan ${formatQty(missing, u)}${extra}`
 }
 
-function bestFor(item: ShoppingItem, catalog: Catalog, prices: ProductPrice[]): OptionEval | null {
+/** Presentación con la que se compra el artículo: la elegida o la más barata. */
+function chosenFor(item: ShoppingItem, catalog: Catalog, prices: ProductPrice[]) {
   const ing = catalog.ingredientById.get(item.ingredient_id)
-  const opts = prices.filter((p) => p.ingredient_id === item.ingredient_id)
-  if (!ing || !opts.length) return null
-  return rankOptions(opts, gramsOf(item, catalog), ing)[0]
+  if (!ing) return null
+  return chosenOption(item.product_price_id, prices.filter((p) => p.ingredient_id === item.ingredient_id), gramsOf(item, catalog), ing)
+}
+
+/** "1 × 18 huevos", "2 × 1 kg". */
+function packageLabel(opt: OptionEval, measures: Measure[] | undefined) {
+  const piece = measures?.find((m) => m.is_piece)
+  const size = opt.package_unit === 'pza' && piece ? measureText(Number(opt.package_qty), piece) : formatQty(Number(opt.package_qty), opt.package_unit)
+  return `${opt.packages} × ${size}`
+}
+
+/** Lo que sobra después del menú, en piezas si el ingrediente se cuenta por pieza. */
+function leftoverText(grams: number, ing: Ingredient, measures: Measure[] | undefined) {
+  const piece = measures?.find((m) => m.is_piece)
+  if (piece && ing.default_unit === 'pza') {
+    const n = Math.floor(grams / Number(piece.grams))
+    return n >= 1 ? measureText(n, piece) : null
+  }
+  if (grams < 20) return null
+  return formatQty(Math.round(grams / 10) * 10, ing.default_unit === 'ml' || ing.default_unit === 'l' ? 'ml' : 'g')
 }
 
 // ---------- lista agrupada ----------
@@ -340,9 +367,10 @@ function ShoppingGroups({
           <h2 className="mb-2 text-base font-semibold">{g.c}</h2>
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {g.rows.map(({ item, ing }) => {
-              const best = bestFor(item, catalog, prices)
               const measures = catalog.measuresByIngredient.get(ing.id)
               const line = lineByIngredient.get(ing.id)
+              const chosen = chosenFor(item, catalog, prices)
+              const extra = chosen ? leftoverText(purchaseGrams(chosen, gramsOf(item, catalog), ing).leftover, ing, measures) : null
               return (
                 <li key={item.id} className="flex min-w-0 items-center">
                   <button
@@ -367,10 +395,21 @@ function ShoppingGroups({
                       <span className={cn('block truncate font-medium', item.is_checked && 'text-muted-foreground line-through')}>{ing.name}</span>
                       {line && !item.is_checked && <span className="block text-xs text-muted-foreground">{breakdown(line, ing, measures)}</span>}
                       <span className="block truncate text-xs text-muted-foreground">
-                        {best ? `${STORE_LABEL[best.store]}: ${formatMoney(best.total)}` : 'Sin precio, toca para comparar'}
+                        {chosen
+                          ? `${STORE_LABEL[chosen.store]}: ${formatMoney(chosen.total)}${extra ? `, te sobran ${extra}` : ''}`
+                          : 'Sin precio, toca para comparar'}
                       </span>
                     </span>
-                    <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{qtyLabel(Number(item.quantity), item.unit, measures)}</span>
+                    <span className="shrink-0 text-right text-sm tabular-nums text-muted-foreground">
+                      {chosen ? (
+                        <>
+                          <span className="block font-medium text-foreground">{packageLabel(chosen, measures)}</span>
+                          <span className="block text-xs">necesitas {qtyLabel(Number(item.quantity), item.unit, measures)}</span>
+                        </>
+                      ) : (
+                        qtyLabel(Number(item.quantity), item.unit, measures)
+                      )}
+                    </span>
                   </button>
                 </li>
               )
@@ -442,7 +481,7 @@ function ItemSheet({
   catalog: Catalog
   prices: ProductPrice[]
   onClose: () => void
-  onUpdate: (c: Partial<Pick<ShoppingItem, 'quantity' | 'unit'>>) => Promise<string | null>
+  onUpdate: (c: Partial<Pick<ShoppingItem, 'quantity' | 'unit' | 'product_price_id'>>) => Promise<string | null>
   onRemove: () => Promise<string | null>
   onAddPrice: (row: Omit<ProductPrice, 'id' | 'user_id' | 'created_at' | 'observed_on'>) => Promise<string | null>
   onRemovePrice: (id: string) => Promise<string | null>
@@ -452,6 +491,8 @@ function ItemSheet({
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const ranked = rankOptions(prices.filter((p) => p.ingredient_id === ing.id), gramsOf(item, catalog), ing)
+  const chosen = chosenFor(item, catalog, prices)
+  const measures = catalog.measuresByIngredient.get(ing.id)
   const hasProtein = (ing.protein_100g ?? 0) >= 3
   const bestProtein = hasProtein ? [...ranked].sort((a, b) => (a.per10gProtein ?? 1e9) - (b.per10gProtein ?? 1e9))[0] : null
 
@@ -494,7 +535,7 @@ function ItemSheet({
           ) : (
             <ul className="flex flex-col gap-2">
               {ranked.map((o, i) => (
-                <li key={o.id} className={cn('rounded-lg border p-3', i === 0 && 'border-primary ring-1 ring-primary')}>
+                <li key={o.id} className={cn('rounded-lg border p-3', chosen?.id === o.id && 'border-primary ring-1 ring-primary')}>
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium text-muted-foreground">
@@ -514,11 +555,32 @@ function ItemSheet({
                     <div className="shrink-0 text-right">
                       <p className="font-display text-lg font-semibold tabular-nums">{formatMoney(o.total)}</p>
                       <p className="text-[11px] text-muted-foreground">{o.packages === 1 ? '1 paquete' : `${o.packages} paquetes`}</p>
+                      {(() => {
+                        const left = leftoverText(purchaseGrams(o, gramsOf(item, catalog), ing).leftover, ing, measures)
+                        return left ? <p className="text-[11px] text-muted-foreground">sobran {left}</p> : null
+                      })()}
                     </div>
                   </div>
-                  <button type="button" onClick={async () => setError(await onRemovePrice(o.id))} className="mt-2 text-xs text-muted-foreground underline-offset-4 hover:underline">
-                    Borrar este precio
-                  </button>
+                  <div className="mt-2 flex items-center gap-3">
+                    {chosen?.id === o.id ? (
+                      <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                        <Check className="size-3.5" />
+                        {chosen.picked ? 'La que vas a comprar' : 'Se compra esta (la más barata)'}
+                      </span>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={async () => setError(await onUpdate({ product_price_id: o.id }))}>
+                        Comprar esta
+                      </Button>
+                    )}
+                    {chosen?.id === o.id && chosen.picked && (
+                      <button type="button" onClick={async () => setError(await onUpdate({ product_price_id: null }))} className="text-xs text-muted-foreground underline-offset-4 hover:underline">
+                        Usar la más barata
+                      </button>
+                    )}
+                    <button type="button" onClick={async () => setError(await onRemovePrice(o.id))} className="ml-auto text-xs text-muted-foreground underline-offset-4 hover:underline">
+                      Borrar precio
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

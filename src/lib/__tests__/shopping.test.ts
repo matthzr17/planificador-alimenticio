@@ -143,3 +143,21 @@ describe('lista con sobras', () => {
     expect(planNeeds(items.map((i, n) => (n === 0 ? { ...i, is_done: true } : i)), recipeById, ingredientById).get('pollo')).toBeUndefined()
   })
 })
+
+describe('presentaciones reales', async () => {
+  const { chosenOption, purchaseGrams } = await import('../shopping')
+  const opt = (id: string, qty: number, unit: string, price: number) => ({ id, ingredient_id: 'huevo', store: 'walmart', product_name: id, brand: null, package_qty: qty, package_unit: unit, price })
+  const opts = [opt('h18', 18, 'pza', 64.5), opt('h30', 30, 'pza', 99)]
+  it('usa la más barata si no se eligió ninguna', () => {
+    const c = chosenOption(null, opts, 350, huevo)! // 7 huevos
+    expect(c).toMatchObject({ id: 'h18', packages: 1, picked: false })
+  })
+  it('respeta la elegida y cae a la más barata si ya no existe', () => {
+    expect(chosenOption('h30', opts, 350, huevo)).toMatchObject({ id: 'h30', picked: true })
+    expect(chosenOption('borrada', opts, 350, huevo)).toMatchObject({ id: 'h18', picked: false })
+  })
+  it('calcula lo que entra a casa y lo que sobra', () => {
+    const c = chosenOption(null, opts, 350, huevo)!
+    expect(purchaseGrams(c, 350, huevo)).toEqual({ bought: 900, leftover: 550 }) // 18 huevos, sobran 11
+  })
+})

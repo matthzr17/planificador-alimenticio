@@ -130,6 +130,28 @@ export function rankOptions(options: PriceOption[], needGrams: number, ing: Ing)
   return options.map((o) => evaluateOption(o, needGrams, ing)).sort((a, b) => a.total - b.total || a.perKg - b.perKg)
 }
 
+/**
+ * Opción con la que se compra un artículo: la que el usuario eligió (product_price_id)
+ * o, si no eligió o ese precio ya no existe, la más barata para la cantidad.
+ */
+export function chosenOption(
+  chosenId: string | null | undefined,
+  options: PriceOption[],
+  needGrams: number,
+  ing: Ing,
+): (OptionEval & { picked: boolean }) | null {
+  if (!options.length) return null
+  const picked = chosenId ? options.find((o) => o.id === chosenId) : undefined
+  if (picked) return { ...evaluateOption(picked, needGrams, ing), picked: true }
+  return { ...rankOptions(options, needGrams, ing)[0], picked: false }
+}
+
+/** Gramos que entran a casa al comprar una opción (paquetes completos) y lo que sobra después del menú. */
+export function purchaseGrams(opt: OptionEval, needGrams: number, ing: Ing) {
+  const bought = opt.packages * toGrams(Number(opt.package_qty), opt.package_unit, ing)
+  return { bought, leftover: Math.max(0, bought - needGrams) }
+}
+
 export type StoreTotal = { store: string; total: number; covered: number }
 export type Comparison = {
   byStore: StoreTotal[]
