@@ -61,7 +61,7 @@ export function suggestAdjustment(
   if (!trend) return null
   const p = trend.pctPerWeek
   const weeks = Math.round(trend.spanDays / 7)
-  const rate = `${trend.kgPerWeek > 0 ? '+' : ''}${trend.kgPerWeek.toFixed(2)} kg por semana`
+  const rate = `${trend.kgPerWeek > 0 ? '+' : trend.kgPerWeek < 0 ? '−' : ''}${Math.abs(trend.kgPerWeek).toFixed(2)} kg por semana`
   let delta = 0
   let reason = ''
   if (goal === 'cut') {

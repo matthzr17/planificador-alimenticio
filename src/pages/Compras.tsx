@@ -322,13 +322,15 @@ export function breakdown(line: ListLine, ing: Ingredient, measures: Measure[] |
   const missing = Math.max(0, line.needGrams - line.haveGrams)
   if (ing.default_unit === 'pza' && piece) {
     const p = (g: number) => Math.round((g / Number(piece.grams)) * 2) / 2
-    if (p(line.haveGrams) === 0) return `Necesitas ${measureText(p(line.needGrams), piece)}, no tienes`
-    return `Necesitas ${measureText(p(line.needGrams), piece)}, tienes ${formatNumber(p(line.haveGrams))}, faltan ${formatNumber(p(missing))}`
+    // Lo necesario se redondea hacia arriba (a medias piezas) para que "necesitas − tienes" cuadre con "faltan"
+    const need = Math.ceil((line.needGrams / Number(piece.grams)) * 2 - 0.1) / 2
+    if (p(line.haveGrams) === 0) return `Necesitas ${measureText(need, piece)}, no tienes`
+    return `Necesitas ${measureText(need, piece)}, tienes ${formatNumber(p(line.haveGrams))}, faltan ${formatNumber(line.unit === 'pza' ? line.quantity : p(missing))}`
   }
   const u = ing.default_unit === 'ml' || ing.default_unit === 'l' ? 'ml' : 'g'
   const extra = line.unit === 'pza' && piece ? ` (${measureText(line.quantity, piece)})` : ''
   if (line.haveGrams < 1) return `Necesitas ${formatQty(line.needGrams, u)}, no tienes${extra}`
-  return `Necesitas ${formatQty(line.needGrams, u)}, tienes ${formatQty(line.haveGrams, u)}, faltan ${formatQty(missing, u)}${extra}`
+  return `Necesitas ${formatQty(line.needGrams, u)}, tienes ${formatQty(line.haveGrams, u)}, faltan ${line.unit === 'pza' ? formatQty(missing, u) : formatQty(line.quantity, line.unit)}${extra}`
 }
 
 /** Presentación con la que se compra el artículo: la elegida o la más barata. */
@@ -415,7 +417,7 @@ function ShoppingGroups({
                     <span className="min-w-0 flex-1">
                       <span className={cn('block truncate font-medium', item.is_checked && 'text-muted-foreground line-through')}>{ing.name}</span>
                       {line && !item.is_checked && <span className="block text-xs text-muted-foreground">{breakdown(line, ing, measures)}</span>}
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block text-xs text-muted-foreground">
                         {chosen
                           ? `${STORE_LABEL[chosen.store]}: ${formatMoney(chosen.total)}${extra ? `, te sobran ${extra}` : ''}`
                           : 'Sin precio, toca para comparar'}
@@ -425,7 +427,7 @@ function ShoppingGroups({
                       {chosen ? (
                         <>
                           <span className="block font-medium text-foreground">{packageLabel(chosen, measures)}</span>
-                          <span className="block text-xs">necesitas {qtyLabel(Number(item.quantity), item.unit, measures)}</span>
+                          <span className="block text-xs">faltan {qtyLabel(Number(item.quantity), item.unit, measures)}</span>
                         </>
                       ) : (
                         qtyLabel(Number(item.quantity), item.unit, measures)

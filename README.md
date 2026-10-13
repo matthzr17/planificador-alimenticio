@@ -12,6 +12,9 @@ App personal (PWA para iPhone) de planificación alimenticia: perfil nutricional
 | **Despensa** | Ingredientes en casa con cantidad exacta o aproximada y caducidad. Lo que caduca en ≤3 días se prioriza en el menú. Se descuenta sola al marcar platillos como hechos. |
 | **Menú** | Genera la semana (desayuno, comida, cena y colación; sin desayuno en ayuno 16:8) priorizando la despensa, respetando dieta y tiempo por día, y ajustando porciones a las calorías. Cambiar platillo, marcar hecho, recetario con filtros. |
 | **Compras** | Lista = lo que pide el menú − la despensa, en cantidades comprables. Comparador con precios capturados por tienda: costo para tu cantidad, precio por kilo, costo por 10 g de proteína, total por tienda y combinación más barata. Lo comprado pasa a la despensa. |
+| **Progreso** | Registro de peso con gráfica; si el ritmo no va con tu objetivo, propone ±150 kcal (tú decides). |
+| **Sin señal** | Copia local de todo lo cargado; palomear la lista o marcar platillos sin conexión se envía al volver la señal. |
+| **Avisos** | Notificación diaria a las 9:00 (CDMX) con lo que caduca hoy, mañana o pasado (app instalada en iPhone). |
 
 ## Stack
 
@@ -30,6 +33,8 @@ src/
   components/   AppShell, gráfica del plato, hojas, buscador de ingredientes, ui/
 supabase/
   schema_etapa1.sql       Esquema base y RLS
+  migrations/README.md    Lista de migraciones aplicadas
+  functions/avisos-caducidad  Edge Function de notificaciones (pg_cron la llama a diario)
   seed/catalogo.mjs       Ingredientes y recetas base (fuente de verdad)
   seed/generar-sql.mjs    Genera seed_etapa3.sql desde el catálogo
 ```
