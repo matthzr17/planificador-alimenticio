@@ -316,8 +316,8 @@ function ResultDetail({ result }: { result: NutritionResult }) {
 
       <dl className="grid grid-cols-3 gap-2 rounded-lg bg-muted p-3 text-center">
         <Stat label="IMC" value={result.bmi.toFixed(1)} sub={bmiLabel} />
-        <Stat label="Metabolismo basal" value={result.bmr.toLocaleString('es-MX')} sub="kcal" />
-        <Stat label="Gasto total" value={result.tdee.toLocaleString('es-MX')} sub="kcal" />
+        <Stat label="Basal" value={result.bmr.toLocaleString('es-MX')} sub="kcal" />
+        <Stat label="Gasto diario" value={result.tdee.toLocaleString('es-MX')} sub="kcal" />
       </dl>
 
       <p className="text-xs text-muted-foreground">
