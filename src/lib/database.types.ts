@@ -204,6 +204,7 @@ export type Database = {
           prep_time_min: number
           protein_serving: number | null
           servings: number
+          serving_parts: Json
         }
         Insert: {
           carbs_serving?: number | null
@@ -220,6 +221,7 @@ export type Database = {
           prep_time_min: number
           protein_serving?: number | null
           servings?: number
+          serving_parts?: Json
         }
         Update: Partial<Database['public']['Tables']['recipes']['Insert']>
         Relationships: []

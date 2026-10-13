@@ -2,6 +2,7 @@ import { Check, Clock, Users } from 'lucide-react'
 import type { Catalog, Recipe } from '@/hooks/useCatalog'
 import type { InventoryItem } from '@/hooks/useInventory'
 import { MEAL_LABEL, type MealType } from '@/lib/planner'
+import { describeServing } from '@/lib/servings'
 import { formatQty, measureText, toGrams, type MeasureLike } from '@/lib/units'
 import { cn } from '@/lib/utils'
 import { Sheet } from '@/components/ui/sheet'
@@ -67,7 +68,7 @@ export function RecipeSheet({
           </span>
           <span className="flex items-center gap-1.5">
             <Users className="size-4" />
-            {fmtServings(servings)}
+            {describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}
           </span>
         </div>
 

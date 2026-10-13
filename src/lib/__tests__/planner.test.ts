@@ -129,3 +129,15 @@ describe('generador de menú', () => {
     expect(alt!.meal_type).toBe('lunch')
   })
 })
+
+describe('porciones en piezas enteras', () => {
+  it('las recetas por pieza salen con piezas enteras', () => {
+    const conPiezas = recipes.map((r) =>
+      r.meal_type === 'dinner' || r.meal_type === 'lunch' ? { ...r, serving_parts: [{ q: 3, one: 'taco', many: 'tacos', count: true }] } : r,
+    )
+    const { items } = generateWeek({ ...base, recipes: conPiezas })
+    for (const it of items.filter((i) => i.meal_type === 'lunch' || i.meal_type === 'dinner')) {
+      expect(Number.isInteger(Math.round(it.servings * 3 * 1000) / 1000)).toBe(true)
+    }
+  })
+})

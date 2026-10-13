@@ -9,6 +9,7 @@
 //   4. "Consume" de una despensa virtual para que la siguiente comida no cuente lo mismo dos veces.
 
 import type { DietType } from './nutrition'
+import { parseParts, snapServings } from './servings'
 import { toGrams } from './units'
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
@@ -39,6 +40,8 @@ export type PlannerRecipe = {
   diet_tags: string[] | null
   kcal_serving: number | null
   protein_serving: number | null
+  /** Cómo se sirve 1 porción; sirve para que las piezas salgan enteras. */
+  serving_parts?: unknown
   ingredients: { ingredient_id: string; quantity: number; unit: string }[]
 }
 export type PantryItem = { ingredient_id: string; quantity: number; unit: string; expires_on: string | null }
@@ -164,7 +167,7 @@ function candidates(state: State, day: number, meal: MealType): { list: PlannerR
 
 function score(state: State, recipe: PlannerRecipe, day: number, mealKcal: number) {
   const { diet, ingredientById } = state.input
-  const servings = servingsFor(mealKcal, recipe.kcal_serving!)
+  const servings = Math.min(MAX_SERVINGS, snapServings(parseParts(recipe.serving_parts), servingsFor(mealKcal, recipe.kcal_serving!)))
   const need = recipeGrams(recipe, servings, ingredientById)
 
   // Cobertura con la despensa, ponderada por gramos

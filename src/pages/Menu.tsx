@@ -12,6 +12,7 @@ import { norm } from '@/lib/units'
 import { cn } from '@/lib/utils'
 import { fmtServings, pantryCoverage, RecipeSheet } from '@/components/RecipeSheet'
 import { pantryAfterCooking } from '@/lib/shopping'
+import { describeServing } from '@/lib/servings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -317,7 +318,7 @@ function Semana({
                         <Clock className="size-3.5" />
                         {recipe.prep_time_min} min
                       </span>
-                      <span>{fmtServings(servings)}</span>
+                      <span className="font-medium text-foreground">{describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}</span>
                       <span className="tabular-nums">{Math.round((recipe.kcal_serving ?? 0) * servings)} kcal</span>
                     </p>
                   </button>
