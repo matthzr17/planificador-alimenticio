@@ -65,6 +65,10 @@ export type PlannerInput = {
   favorites?: Set<string>
   /** Cocinar de más en días libres para comer sobras en días ocupados. */
   batchCooking?: boolean
+  /** Presupuesto semanal para comida (MXN). Con precios capturados, el menú prefiere lo que cabe. */
+  weeklyBudget?: number | null
+  /** Precio más barato capturado por gramo de cada ingrediente (MXN/g). */
+  pricePerGram?: Map<string, number>
 }
 
 export type PlanItem = {
@@ -207,12 +211,37 @@ function score(state: State, recipe: PlannerRecipe, day: number, mealKcal: numbe
   if (state.input.favorites?.has(recipe.id)) s += 1.5
   if (batchable(state, recipe, day) && busySlotsAfter(state, day, recipe.meal_type as MealType).length) s += 1.2
   if (diet === 'high_protein' && recipe.kcal_serving) s += (((recipe.protein_serving ?? 0) * 4) / recipe.kcal_serving) * 4
+  // Presupuesto: lo que habría que comprar (lo que no cubre la despensa) contra lo que toca por comida
+  const budgetPerMeal = mealBudget(state)
+  if (budgetPerMeal) {
+    const cost = purchaseCost(need, state)
+    s -= (cost / budgetPerMeal) * 0.8
+    if (cost > budgetPerMeal) s -= ((cost - budgetPerMeal) / budgetPerMeal) * 2
+  }
   // Penaliza recetas que necesitan porciones muy forzadas para llegar a las calorías
   const ideal = mealKcal / recipe.kcal_serving!
   s -= Math.abs(ideal - servings) * 0.8
   s += state.random() * 0.8
 
   return { score: s, servings, need, coverage }
+}
+
+/** Presupuesto por comida = presupuesto semanal / comidas de la semana. Null si no aplica. */
+function mealBudget(state: State): number | null {
+  const { weeklyBudget, pricePerGram, diet } = state.input
+  if (!weeklyBudget || !pricePerGram?.size) return null
+  const meals = Object.keys(mealsFor(diet)).length * 7
+  return weeklyBudget / meals
+}
+
+/** Costo estimado de comprar lo que la despensa no cubre (ingredientes sin precio cuentan como $0). */
+export function purchaseCost(need: Map<string, number>, state: Pick<State, 'stock' | 'input'>): number {
+  let cost = 0
+  for (const [id, g] of need) {
+    const missing = Math.max(0, g - (state.stock.get(id) ?? 0))
+    cost += missing * (state.input.pricePerGram?.get(id) ?? 0)
+  }
+  return cost
 }
 
 function commit(state: State, day: number, recipe: PlannerRecipe, need: Map<string, number>) {

@@ -6,6 +6,9 @@ import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan, type MealPlanItem } from '@/hooks/usePlan'
 import { useProfile, type Profile } from '@/hooks/useProfile'
 import { useFavorites } from '@/hooks/useFavorites'
+import { usePrices } from '@/hooks/useShopping'
+import { buildShoppingList, compareStores, formatMoney, planNeeds, pricePerGramMap } from '@/lib/shopping'
+import { toGrams } from '@/lib/units'
 import { alternativeFor, batchFactor, generateWeek, isoDate, MEAL_LABEL, weekStartOf, WEEK_ORDER, type MealType, type PlannerInput } from '@/lib/planner'
 import { dietAllows } from '@/lib/planner'
 import type { DietType } from '@/lib/nutrition'
@@ -40,7 +43,7 @@ function weekLabel(weekStart: Date) {
     : `${weekStart.getDate()} de ${m(weekStart)} al ${sunday.getDate()} de ${m(sunday)}`
 }
 
-function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryItem[], weekStart: Date, seed: number, isFavorite?: (r: Recipe) => boolean): PlannerInput {
+function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryItem[], weekStart: Date, seed: number, isFavorite?: (r: Recipe) => boolean, pricePerGram?: Map<string, number>): PlannerInput {
   return {
     recipes: catalog.recipes.map((r) => ({ ...r, kcal_serving: r.kcal_serving, ingredients: r.ingredients.map((i) => ({ ...i, quantity: Number(i.quantity) })) })),
     ingredientById: catalog.ingredientById,
@@ -54,6 +57,8 @@ function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryIt
     seed,
     favorites: new Set(catalog.recipes.filter((r) => isFavorite?.(r)).map((r) => r.id)),
     batchCooking: profile.batch_cooking,
+    weeklyBudget: profile.weekly_budget == null ? null : Number(profile.weekly_budget),
+    pricePerGram,
   }
 }
 
@@ -161,6 +166,20 @@ function Semana({
   const [swapping, setSwapping] = useState<string | null>(null)
   const [cooking, setCooking] = useState<MealPlanItem | null>(null)
   const { isFavorite } = useFavorites()
+  const { prices } = usePrices()
+  const pricePerGram = useMemo(() => (prices ? pricePerGramMap(prices, catalog.ingredientById) : undefined), [prices, catalog])
+
+  // Costo estimado de las compras de la semana (lo que falta según el menú y la despensa)
+  const estimate = useMemo(() => {
+    if (!prices || !items.length) return null
+    const lines = buildShoppingList(planNeeds(items.map((i) => ({ ...i, servings: Number(i.servings) })), catalog.recipeById, catalog.ingredientById), inventory, catalog.ingredientById)
+    const cmp = compareStores(
+      lines.map((l) => ({ ingredient_id: l.ingredient_id, grams: toGrams(l.quantity, l.unit, catalog.ingredientById.get(l.ingredient_id)!) })),
+      prices,
+      catalog.ingredientById,
+    )
+    return { total: cmp.best.total, priced: cmp.itemsWithPrices, count: lines.length }
+  }, [prices, items, inventory, catalog])
 
   if (!profile?.target_kcal) {
     return (
@@ -174,7 +193,7 @@ function Semana({
     )
   }
 
-  const input = (seed: number) => plannerInput(profile, catalog, inventory, weekStart, seed, isFavorite)
+  const input = (seed: number) => plannerInput(profile, catalog, inventory, weekStart, seed, isFavorite, pricePerGram)
 
   async function generate() {
     setBusy(true)
@@ -277,6 +296,10 @@ function Semana({
         </p>
       )}
       {error && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
+
+      {estimate && estimate.count > 0 && (profile.weekly_budget != null || estimate.priced > 0) && (
+        <BudgetBar estimate={estimate} budget={profile.weekly_budget == null ? null : Number(profile.weekly_budget)} />
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -502,5 +525,33 @@ function Recetario({
       </ul>
       {list.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Ninguna receta coincide con los filtros.</p>}
     </div>
+  )
+}
+
+/** Compras estimadas de la semana contra el presupuesto. */
+function BudgetBar({ estimate, budget }: { estimate: { total: number; priced: number; count: number }; budget: number | null }) {
+  const over = budget != null && estimate.total > budget
+  const pct = budget ? Math.min(100, (estimate.total / budget) * 100) : 0
+  return (
+    <section className="rounded-xl border bg-card p-4" aria-label="Costo estimado de la semana">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <p className="text-sm font-medium">Compras estimadas de la semana</p>
+        <p className="text-sm tabular-nums">
+          <span className={cn('font-semibold', over && 'text-destructive')}>{formatMoney(estimate.total)}</span>
+          {budget != null && <span className="text-muted-foreground"> / {formatMoney(budget)}</span>}
+        </p>
+      </div>
+      {budget != null && (
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+          <div className={cn('h-full rounded-full', over ? 'bg-destructive' : 'bg-primary')} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">
+        {estimate.priced === 0
+          ? 'Captura precios en Compras para estimar el costo.'
+          : `Con precio en ${estimate.priced} de ${estimate.count} artículos; el resto no se cuenta.`}
+        {over && ' Toca "Rehacer menú" para buscar opciones más baratas.'}
+      </p>
+    </section>
   )
 }

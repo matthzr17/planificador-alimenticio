@@ -176,3 +176,27 @@ describe('favoritas y cocinar para varios días', () => {
     expect(items.some((i) => i.leftover_of_day != null)).toBe(false)
   })
 })
+
+describe('presupuesto semanal', () => {
+  // Precios ficticios: mariscos y salmón muy caros, lo demás barato
+  const caro = new Set(['Salmón', 'Camarón', 'Filete de tilapia', 'Proteína en polvo (whey)', 'Almendras', 'Nueces'])
+  const pricePerGram = new Map([...ingredientById.keys()].map((id) => [id, caro.has(id) ? 0.6 : 0.04]))
+  const usesExpensive = (input: PlannerInput) =>
+    generateWeek(input).items.filter((it) => recipeById.get(it.recipe_id)!.ingredients.some((i) => caro.has(i.ingredient_id))).length
+
+  it('con presupuesto ajustado, el menú usa menos ingredientes caros', () => {
+    let sin = 0
+    let con = 0
+    for (const seed of [1, 2, 3, 4, 5]) {
+      sin += usesExpensive({ ...base, seed, pricePerGram })
+      con += usesExpensive({ ...base, seed, pricePerGram, weeklyBudget: 600 })
+    }
+    expect(con).toBeLessThan(sin)
+  })
+
+  it('sin precios capturados el presupuesto no cambia nada', () => {
+    const a = generateWeek({ ...base, weeklyBudget: 600 }).items.map((i) => i.recipe_id).join()
+    const b = generateWeek(base).items.map((i) => i.recipe_id).join()
+    expect(a).toBe(b)
+  })
+})

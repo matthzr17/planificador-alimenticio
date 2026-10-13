@@ -33,6 +33,7 @@ type Form = {
   busyMax: number
   freeMax: number
   batchCooking: boolean
+  weeklyBudget: string
   /** Ajuste de calorías aceptado por tu progreso de peso. */
   kcalAdjustment: number
 }
@@ -55,8 +56,15 @@ function fromProfile(p: Profile | null): Form {
     busyMax: p?.busy_day_max_min ?? 15,
     freeMax: p?.free_day_max_min ?? 60,
     batchCooking: p?.batch_cooking ?? true,
+    weeklyBudget: p?.weekly_budget != null ? String(Number(p.weekly_budget)) : '',
     kcalAdjustment: p?.kcal_adjustment ?? 0,
   }
+}
+
+/** "1,200" o "$1200" → 1200; vacío o inválido → null. */
+const budgetValue = (s: string) => {
+  const n = Number(s.replace(/[$,\s]/g, ''))
+  return s.trim() && n > 0 ? Math.round(n * 100) / 100 : null
 }
 
 const num = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
@@ -147,6 +155,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
       busy_day_max_min: form.busyMax,
       free_day_max_min: form.freeMax,
       batch_cooking: form.batchCooking,
+      weekly_budget: budgetValue(form.weeklyBudget),
       kcal_adjustment: form.kcalAdjustment,
       target_kcal: result.targetKcal,
       target_protein_g: result.macros.proteinG,
@@ -295,6 +304,12 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
           </span>
           <input type="checkbox" checked={form.batchCooking} onChange={(e) => set('batchCooking', e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-primary" />
         </label>
+      </Section>
+
+      <Section title="Presupuesto" description="Opcional. Con los precios que captures en Compras, el menú prefiere recetas que quepan.">
+        <Field label="Presupuesto semanal para comida (MXN)" htmlFor="budget" hint="Déjalo vacío si no quieres limitarlo." error={form.weeklyBudget && !budgetValue(form.weeklyBudget) ? 'Escribe una cantidad mayor a 0.' : undefined}>
+          <Input id="budget" inputMode="decimal" placeholder="Ej. 1200" value={form.weeklyBudget} onChange={(e) => set('weeklyBudget', e.target.value)} />
+        </Field>
       </Section>
 
       </div>

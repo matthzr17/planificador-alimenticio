@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, CloudOff, ExternalLink, Info, Loader2
 import { useCatalog, type Catalog, type Ingredient, type Measure } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan } from '@/hooks/usePlan'
+import { useProfile } from '@/hooks/useProfile'
 import { usePrices, useShoppingList, type ProductPrice, type ShoppingItem } from '@/hooks/useShopping'
 import { isoDate, weekStartOf } from '@/lib/planner'
 import {
@@ -38,6 +39,7 @@ export default function Compras() {
   const { catalog, error: catalogError } = useCatalog()
   const { items: inventory, upsert: upsertPantry } = useInventory()
   const { prices, add: addPrice, remove: removePrice } = usePrices()
+  const { profile } = useProfile()
   const [now] = useState(() => new Date())
   const [weekOffset, setWeekOffset] = useState(0)
   const weekStart = useMemo(() => addDays(weekStartOf(now), weekOffset * 7), [now, weekOffset])
@@ -223,7 +225,7 @@ export default function Compras() {
             </div>
 
             {/* Comparador */}
-            {comparison && <StoreSummary comparison={comparison} pending={shopping.items.filter((i) => !i.is_checked).length} />}
+            {comparison && <StoreSummary comparison={comparison} pending={shopping.items.filter((i) => !i.is_checked).length} budget={profile?.weekly_budget == null ? null : Number(profile.weekly_budget)} />}
           </div>
 
           {checked.length > 0 && (
@@ -442,7 +444,7 @@ function ShoppingGroups({
 
 // ---------- resumen por tienda ----------
 
-function StoreSummary({ comparison, pending }: { comparison: ReturnType<typeof compareStores>; pending: number }) {
+function StoreSummary({ comparison, pending, budget }: { comparison: ReturnType<typeof compareStores>; pending: number; budget: number | null }) {
   const { byStore, best, itemsWithPrices } = comparison
   return (
     <aside className="min-w-0 rounded-xl border bg-card p-5 xl:sticky xl:top-10" aria-labelledby="comparador-titulo">
@@ -461,6 +463,13 @@ function StoreSummary({ comparison, pending }: { comparison: ReturnType<typeof c
           <div className="mt-4 rounded-lg bg-secondary p-4">
             <p className="text-xs text-secondary-foreground/80">Comprando cada artículo donde sale más barato</p>
             <p className="mt-1 font-display text-3xl font-semibold tabular-nums text-secondary-foreground">{formatMoney(best.total)}</p>
+            {budget != null && (
+              <p className={cn('mt-1 text-xs', best.total > budget ? 'font-medium text-destructive' : 'text-secondary-foreground/80')}>
+                {best.total > budget
+                  ? `${formatMoney(best.total - budget)} arriba de tu presupuesto de ${formatMoney(budget)}`
+                  : `Te quedan ${formatMoney(budget - best.total)} de tu presupuesto de ${formatMoney(budget)}`}
+              </p>
+            )}
           </div>
           <ul className="mt-4 divide-y">
             {byStore.map((s, i) => (

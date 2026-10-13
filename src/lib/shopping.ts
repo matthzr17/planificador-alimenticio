@@ -152,6 +152,20 @@ export function purchaseGrams(opt: OptionEval, needGrams: number, ing: Ing) {
   return { bought, leftover: Math.max(0, bought - needGrams) }
 }
 
+/** Precio más barato por gramo (o ml) de cada ingrediente según los precios capturados. */
+export function pricePerGramMap(prices: PriceOption[], ingredientById: Map<string, Ing>): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const p of prices) {
+    const ing = ingredientById.get(p.ingredient_id)
+    if (!ing) continue
+    const g = toGrams(Number(p.package_qty), p.package_unit, ing)
+    if (g <= 0) continue
+    const perG = Number(p.price) / g
+    if (!out.has(p.ingredient_id) || perG < out.get(p.ingredient_id)!) out.set(p.ingredient_id, perG)
+  }
+  return out
+}
+
 export type StoreTotal = { store: string; total: number; covered: number }
 export type Comparison = {
   byStore: StoreTotal[]
