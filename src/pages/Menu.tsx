@@ -5,14 +5,15 @@ import { useCatalog, type Catalog, type Recipe } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan, type MealPlanItem } from '@/hooks/usePlan'
 import { useProfile, type Profile } from '@/hooks/useProfile'
-import { alternativeFor, generateWeek, isoDate, MEAL_LABEL, mondayOf, WEEK_ORDER, type MealType, type PlannerInput } from '@/lib/planner'
+import { useFavorites } from '@/hooks/useFavorites'
+import { alternativeFor, batchFactor, generateWeek, isoDate, MEAL_LABEL, weekStartOf, WEEK_ORDER, type MealType, type PlannerInput } from '@/lib/planner'
 import { dietAllows } from '@/lib/planner'
 import type { DietType } from '@/lib/nutrition'
 import { norm } from '@/lib/units'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { fmtServings, pantryCoverage, RecipeSheet } from '@/components/RecipeSheet'
-import { itemMacros, itemUses, pantryAfterUsing, sumMacros } from '@/lib/cooking'
+import { itemMacros, itemUses, pantryAfterUsing, scaleUses, sumMacros } from '@/lib/cooking'
 import { CookSheet } from '@/components/CookSheet'
 import { describeServing } from '@/lib/servings'
 import { Button } from '@/components/ui/button'
@@ -31,15 +32,15 @@ function addDays(d: Date, n: number) {
   return x
 }
 
-function weekLabel(monday: Date) {
-  const sunday = addDays(monday, 6)
+function weekLabel(weekStart: Date) {
+  const sunday = addDays(weekStart, 6)
   const m = (d: Date) => d.toLocaleDateString('es-MX', { month: 'short' }).replace('.', '')
-  return monday.getMonth() === sunday.getMonth()
-    ? `${monday.getDate()} al ${sunday.getDate()} de ${m(sunday)}`
-    : `${monday.getDate()} de ${m(monday)} al ${sunday.getDate()} de ${m(sunday)}`
+  return weekStart.getMonth() === sunday.getMonth()
+    ? `${weekStart.getDate()} al ${sunday.getDate()} de ${m(sunday)}`
+    : `${weekStart.getDate()} de ${m(weekStart)} al ${sunday.getDate()} de ${m(sunday)}`
 }
 
-function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryItem[], monday: Date, seed: number): PlannerInput {
+function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryItem[], weekStart: Date, seed: number, isFavorite?: (r: Recipe) => boolean): PlannerInput {
   return {
     recipes: catalog.recipes.map((r) => ({ ...r, kcal_serving: r.kcal_serving, ingredients: r.ingredients.map((i) => ({ ...i, quantity: Number(i.quantity) })) })),
     ingredientById: catalog.ingredientById,
@@ -49,8 +50,10 @@ function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryIt
     busyDays: profile.busy_days ?? [],
     busyMaxMin: profile.busy_day_max_min ?? 15,
     freeMaxMin: profile.free_day_max_min ?? 60,
-    weekStart: monday,
+    weekStart,
     seed,
+    favorites: new Set(catalog.recipes.filter((r) => isFavorite?.(r)).map((r) => r.id)),
+    batchCooking: profile.batch_cooking,
   }
 }
 
@@ -59,6 +62,7 @@ export default function Menu() {
   const { profile, loading: loadingProfile } = useProfile()
   const { catalog, error: catalogError, reload: reloadCatalog } = useCatalog()
   const [planRefresh, setPlanRefresh] = useState(0)
+  const { isFavorite, toggle: toggleFavorite } = useFavorites()
   const { items: inventory, upsert: upsertPantry } = useInventory()
   const [open, setOpen] = useState<{ recipe: Recipe; servings: number } | null>(null)
 
@@ -103,6 +107,8 @@ export default function Menu() {
           catalog={catalog}
           inventory={inventory}
           onClose={() => setOpen(null)}
+          isFavorite={isFavorite(open.recipe)}
+          onToggleFavorite={() => toggleFavorite(open.recipe)}
           onRestoreOriginal={async () => {
             // Los platillos que usaban tu versión regresan a la original; luego se borra tu versión
             const base = open.recipe.base_recipe_id!
@@ -140,11 +146,11 @@ function Semana({
   planRefresh: number
 }) {
   const [now] = useState(() => new Date())
-  const thisMonday = useMemo(() => mondayOf(now), [now])
+  const thisWeekStart = useMemo(() => weekStartOf(now), [now])
   const todayDow = now.getDay()
   const [weekOffset, setWeekOffset] = useState(0)
-  const monday = useMemo(() => addDays(thisMonday, weekOffset * 7), [thisMonday, weekOffset])
-  const { items, loading, error, replace, updateItem, reload: reloadPlan } = usePlan(isoDate(monday))
+  const weekStart = useMemo(() => addDays(thisWeekStart, weekOffset * 7), [thisWeekStart, weekOffset])
+  const { items, loading, error, replace, updateItem, reload: reloadPlan } = usePlan(isoDate(weekStart))
   // Cuando cambian recetas desde fuera de la semana (p. ej. volver a la original), se relee el plan
   useEffect(() => {
     if (planRefresh) reloadPlan()
@@ -154,6 +160,7 @@ function Semana({
   const [notice, setNotice] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [swapping, setSwapping] = useState<string | null>(null)
   const [cooking, setCooking] = useState<MealPlanItem | null>(null)
+  const { isFavorite } = useFavorites()
 
   if (!profile?.target_kcal) {
     return (
@@ -167,7 +174,7 @@ function Semana({
     )
   }
 
-  const input = (seed: number) => plannerInput(profile, catalog, inventory, monday, seed)
+  const input = (seed: number) => plannerInput(profile, catalog, inventory, weekStart, seed, isFavorite)
 
   async function generate() {
     setBusy(true)
@@ -184,13 +191,20 @@ function Semana({
   async function toggleDone(item: MealPlanItem) {
     const recipe = catalog.recipeById.get(item.recipe_id)
     if (!recipe) return
+    // Las sobras ya se descontaron al cocinar la tanda: solo se marcan
+    if (item.leftover_of_day != null) {
+      const err = await updateItem(item, { is_done: !item.is_done })
+      if (err) setNotice({ kind: 'error', text: err })
+      return
+    }
     if (!item.is_done) {
       setCooking(item)
       return
     }
     const err = await updateItem(item, { is_done: false })
     if (err) return setNotice({ kind: 'error', text: `No se pudo desmarcar: ${err}` })
-    const records = pantryAfterUsing(itemUses({ ...item, servings: Number(item.servings) }, recipe), inventory, catalog.ingredientById, 1)
+    const uses = scaleUses(itemUses({ ...item, servings: Number(item.servings) }, recipe), Math.max(1, batchFactor(item, items)))
+    const records = pantryAfterUsing(uses, inventory, catalog.ingredientById, 1)
     for (const r of records) {
       const e = await upsertPantry({ ingredient_id: r.ingredient_id, quantity: r.quantity, unit: r.unit, is_approximate: r.is_approximate, expires_on: r.expires_on })
       if (e) return setNotice({ kind: 'error', text: `Se desmarcó, pero no se pudo actualizar la despensa: ${e}` })
@@ -204,7 +218,10 @@ function Semana({
     const target = plan[items.indexOf(item)]
     const alt = alternativeFor(input(newSeed()), plan, target)
     if (alt) {
-      const err = await updateItem(item, { recipe_id: alt.recipe_id, servings: alt.servings })
+      // Una sobra que se cambia deja de ser sobra; si se cambia la tanda, sus sobras siguen a la nueva receta
+      const leftoversOfThis = items.filter((o) => o.leftover_of_day === item.day_of_week && o.meal_type === item.meal_type && o.recipe_id === item.recipe_id)
+      let err = await updateItem(item, { recipe_id: alt.recipe_id, servings: alt.servings, leftover_of_day: null, ingredients_override: null })
+      for (const l of leftoversOfThis) if (!err) err = await updateItem(l, { recipe_id: alt.recipe_id, servings: alt.servings, ingredients_override: null })
       if (err) setNotice({ kind: 'error', text: `No se pudo cambiar: ${err}` })
     } else setNotice({ kind: 'warn', text: 'No hay otra receta que cumpla tus reglas para esa comida.' })
     setSwapping(null)
@@ -233,7 +250,7 @@ function Semana({
           </Button>
           <div className="min-w-0 text-center">
             <p className="text-sm font-medium">{weekOffset === 0 ? 'Esta semana' : 'Próxima semana'}</p>
-            <p className="text-xs text-muted-foreground">{weekLabel(monday)}</p>
+            <p className="text-xs text-muted-foreground">{weekLabel(weekStart)}</p>
           </div>
           <Button variant="ghost" size="icon" aria-label="Semana siguiente" disabled={weekOffset >= 1} onClick={() => setWeekOffset((w) => w + 1)}>
             <ChevronRight />
@@ -277,7 +294,7 @@ function Semana({
           {/* Días */}
           <div className="grid grid-cols-7 gap-1.5" role="tablist" aria-label="Día de la semana">
             {WEEK_ORDER.map((d, idx) => {
-              const date = addDays(monday, idx)
+              const date = addDays(weekStart, idx)
               const isToday = weekOffset === 0 && d === todayDow
               const selected = d === day
               return (
@@ -336,24 +353,30 @@ function Semana({
               const recipe = catalog.recipeById.get(item.recipe_id)
               if (!recipe) return null
               const servings = Number(item.servings)
-              const cov = pantryCoverage(recipe, servings, catalog, inventory)
+              const factor = batchFactor(item, items)
+              const cov = pantryCoverage(recipe, servings * Math.max(1, factor), catalog, inventory)
+              const isLeftover = item.leftover_of_day != null
               return (
                 <li key={item.id} className={cn('min-w-0 rounded-xl border bg-card transition-opacity', item.is_done && 'opacity-60')}>
-                  <button type="button" onClick={() => onOpen(recipe, servings)} className="block w-full min-w-0 p-4 pb-3 text-left">
-                    <p className="text-xs font-medium text-muted-foreground">{MEAL_LABEL[item.meal_type as MealType]}</p>
+                  <button type="button" onClick={() => onOpen(recipe, servings * Math.max(1, factor))} className="block w-full min-w-0 p-4 pb-3 text-left">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {MEAL_LABEL[item.meal_type as MealType]}
+                      {isLeftover && <span className="ml-2 text-primary">Sobras del {DAY_LONG[item.leftover_of_day!].toLowerCase()}</span>}
+                      {factor > 1 && <span className="ml-2 text-primary">Cocina para {factor} comidas</span>}
+                    </p>
                     <p className={cn('mt-0.5 font-display text-lg font-semibold leading-snug', item.is_done && 'line-through')}>{recipe.name}</p>
                     <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Clock className="size-3.5" />
-                        {recipe.prep_time_min} min
+                        {isLeftover ? 'Solo calentar' : `${recipe.prep_time_min} min`}
                       </span>
                       <span className="font-medium text-foreground">{describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}</span>
                       <span className="tabular-nums">{Math.round(itemMacros({ ...item, servings }, recipe, catalog.ingredientById).kcal)} kcal</span>
                     </p>
                   </button>
                   <div className="flex items-center gap-2 border-t px-2 py-1.5">
-                    <span className={cn('px-2 text-xs', cov.have === cov.total ? 'text-primary' : 'text-muted-foreground')}>
-                      {cov.have === cov.total ? 'Tienes todo' : `Tienes ${cov.have} de ${cov.total}`}
+                    <span className={cn('px-2 text-xs', isLeftover || cov.have === cov.total ? 'text-primary' : 'text-muted-foreground')}>
+                      {isLeftover ? 'Ya está cocinado' : cov.have === cov.total ? 'Tienes todo' : `Tienes ${cov.have} de ${cov.total}`}
                     </span>
                     <Button variant="ghost" size="sm" className="ml-auto" onClick={() => swap(item)} disabled={swapping === item.id}>
                       {swapping === item.id ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -405,6 +428,8 @@ function Recetario({
   const [meal, setMeal] = useState<MealType | 'all'>('all')
   const [onlyMyDiet, setOnlyMyDiet] = useState(true)
   const [quick, setQuick] = useState(false)
+  const [onlyFav, setOnlyFav] = useState(false)
+  const { isFavorite } = useFavorites()
   const diet = (profile?.diet_type ?? 'traditional') as DietType
   const quickMax = profile?.busy_day_max_min ?? 15
 
@@ -412,6 +437,7 @@ function Recetario({
     .filter((r) => meal === 'all' || r.meal_type === meal)
     .filter((r) => !onlyMyDiet || dietAllows(r, diet))
     .filter((r) => !quick || r.prep_time_min <= quickMax)
+    .filter((r) => !onlyFav || isFavorite(r))
     .filter((r) => !q || norm(r.name).includes(norm(q)))
     .sort((a, b) => MEAL_ORDER.indexOf(a.meal_type as MealType) - MEAL_ORDER.indexOf(b.meal_type as MealType) || a.name.localeCompare(b.name, 'es'))
 
@@ -437,6 +463,9 @@ function Recetario({
         <button className={chip(onlyMyDiet)} aria-pressed={onlyMyDiet} onClick={() => setOnlyMyDiet((v) => !v)}>
           Mi dieta
         </button>
+        <button className={chip(onlyFav)} aria-pressed={onlyFav} onClick={() => setOnlyFav((v) => !v)}>
+          Favoritas
+        </button>
         <button className={chip(quick)} aria-pressed={quick} onClick={() => setQuick((v) => !v)}>
           {quickMax} min o menos
         </button>
@@ -453,6 +482,7 @@ function Recetario({
                 <span className="text-xs font-medium text-muted-foreground">
                   {MEAL_LABEL[r.meal_type as MealType]}
                   {r.owner_id && <span className="ml-2 text-primary">Tu versión</span>}
+                  {isFavorite(r) && <span className="ml-2 text-primary">Favorita</span>}
                 </span>
                 <span className="mt-0.5 font-display text-base font-semibold leading-snug">{r.name}</span>
                 <span className="mt-auto flex flex-wrap gap-x-3 pt-2 text-sm text-muted-foreground">

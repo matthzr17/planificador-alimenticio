@@ -10,6 +10,7 @@
 // La mejor opción de cada artículo es la de menor costo para cubrir la cantidad.
 
 import { itemUses, pantryAfterUsing, type PantryRecord } from './cooking'
+import { batchFactor } from './planner'
 import { toGrams, type Unit } from './units'
 
 export const STORES = [
@@ -37,19 +38,21 @@ type RecipeLike = { id: string; servings: number; ingredients: { ingredient_id: 
 
 /** Gramos totales por ingrediente que pide el plan (solo platillos no hechos; respeta cambios de ingredientes). */
 export function planNeeds(
-  items: { recipe_id: string; servings: number; is_done?: boolean; ingredients_override?: unknown }[],
+  items: { recipe_id: string; servings: number; is_done?: boolean; ingredients_override?: unknown; day_of_week?: number; meal_type?: string; leftover_of_day?: number | null }[],
   recipeById: Map<string, RecipeLike>,
   ingredientById: Map<string, Ing>,
 ): Map<string, number> {
   const needs = new Map<string, number>()
   for (const it of items) {
-    if (it.is_done) continue
+    // Las sobras se compran y cocinan junto con su tanda: se cuentan en el platillo del día en que se cocina
+    if (it.is_done || it.leftover_of_day != null) continue
     const r = recipeById.get(it.recipe_id)
     if (!r) continue
+    const factor = it.day_of_week != null && it.meal_type ? batchFactor(it as never, items as never) : 1
     for (const u of itemUses(it, r)) {
       const ing = ingredientById.get(u.ingredient_id)
       if (!ing) continue
-      needs.set(u.ingredient_id, (needs.get(u.ingredient_id) ?? 0) + toGrams(u.quantity, u.unit, ing))
+      needs.set(u.ingredient_id, (needs.get(u.ingredient_id) ?? 0) + toGrams(u.quantity, u.unit, ing) * factor)
     }
   }
   return needs

@@ -129,3 +129,17 @@ describe('formato de cantidades', async () => {
     expect(formatQty(1.5, 'pza')).toBe('1½ pza')
   })
 })
+
+describe('lista con sobras', () => {
+  it('cuenta la tanda completa una sola vez', () => {
+    const recipeById = new Map([['caldo', { id: 'caldo', servings: 1, ingredients: [{ ingredient_id: 'pollo', quantity: 200, unit: 'g' }] }]])
+    const items = [
+      { recipe_id: 'caldo', servings: 1, day_of_week: 6, meal_type: 'lunch' },
+      { recipe_id: 'caldo', servings: 1, day_of_week: 1, meal_type: 'lunch', leftover_of_day: 6 },
+      { recipe_id: 'caldo', servings: 1, day_of_week: 2, meal_type: 'lunch', leftover_of_day: 6 },
+    ]
+    expect(planNeeds(items, recipeById, ingredientById).get('pollo')).toBe(600)
+    // Si la tanda ya se cocinó, ya no hay que comprar nada para las sobras
+    expect(planNeeds(items.map((i, n) => (n === 0 ? { ...i, is_done: true } : i)), recipeById, ingredientById).get('pollo')).toBeUndefined()
+  })
+})

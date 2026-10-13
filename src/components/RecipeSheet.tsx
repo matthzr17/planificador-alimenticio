@@ -1,4 +1,4 @@
-import { Check, Clock, Users } from 'lucide-react'
+import { Check, Clock, Heart, Users } from 'lucide-react'
 import type { Catalog, Recipe } from '@/hooks/useCatalog'
 import type { InventoryItem } from '@/hooks/useInventory'
 import { MEAL_LABEL, type MealType } from '@/lib/planner'
@@ -42,6 +42,8 @@ export function RecipeSheet({
   inventory,
   onClose,
   onRestoreOriginal,
+  isFavorite,
+  onToggleFavorite,
 }: {
   recipe: Recipe
   servings: number
@@ -50,6 +52,8 @@ export function RecipeSheet({
   onClose: () => void
   /** Solo para tus versiones: volver a la receta original. */
   onRestoreOriginal?: () => Promise<string | null>
+  isFavorite?: boolean
+  onToggleFavorite?: () => void
 }) {
   const { status } = pantryCoverage(recipe, servings, catalog, inventory)
   const factor = servings / recipe.servings
@@ -64,7 +68,7 @@ export function RecipeSheet({
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()} title={recipe.name} description={recipe.description ?? MEAL_LABEL[recipe.meal_type as MealType]}>
       <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <Clock className="size-4" />
             {recipe.prep_time_min} min
@@ -73,6 +77,20 @@ export function RecipeSheet({
             <Users className="size-4" />
             {describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}
           </span>
+          {onToggleFavorite && (
+            <button
+              type="button"
+              aria-pressed={isFavorite}
+              onClick={onToggleFavorite}
+              className={cn(
+                'ml-auto inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors',
+                isFavorite ? 'border-primary bg-primary text-primary-foreground' : 'border-input text-foreground',
+              )}
+            >
+              <Heart className={cn('size-4', isFavorite && 'fill-current')} />
+              {isFavorite ? 'Favorita' : 'Marcar favorita'}
+            </button>
+          )}
         </div>
 
         {recipe.owner_id && recipe.base_recipe_id && (

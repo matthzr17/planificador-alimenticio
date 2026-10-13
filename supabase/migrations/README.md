@@ -12,3 +12,5 @@ Aquí se describen en orden para referencia:
    `recipes.base_recipe_id` (versiones personales) e ingredientes sustitutos nuevos.
 
 Para ver el SQL exacto: Supabase → Database → Migrations.
+7. `bloque4_favoritas_y_sobras` – tabla `recipe_favorites`, `profiles.batch_cooking`, `meal_plan_items.leftover_of_day`.
+8. `bloque4_semana_inicia_domingo` – los planes existentes pasan a empezar en domingo.

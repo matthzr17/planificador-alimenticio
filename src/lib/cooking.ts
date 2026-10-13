@@ -45,6 +45,11 @@ export function itemUses(item: ItemLike, recipe: RecipeLike): Use[] {
   return recipe.ingredients.map((ri) => ({ ingredient_id: ri.ingredient_id, quantity: round3(Number(ri.quantity) * f), unit: ri.unit }))
 }
 
+/** Multiplica las cantidades (para cocinar una tanda de varias comidas o volver a una sola). */
+export function scaleUses(uses: Use[], factor: number): Use[] {
+  return uses.map((u) => ({ ...u, quantity: round3(u.quantity * factor) }))
+}
+
 export type Macros4 = { kcal: number; protein: number; carbs: number; fat: number }
 
 export function macrosOf(uses: Use[], ingredientById: Map<string, Ing>): Macros4 {

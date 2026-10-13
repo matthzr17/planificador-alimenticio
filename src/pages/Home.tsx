@@ -6,7 +6,7 @@ import { useCatalog } from '@/hooks/useCatalog'
 import { usePlan } from '@/hooks/usePlan'
 import { useProfile } from '@/hooks/useProfile'
 import { DIET_OPTIONS, GOAL_OPTIONS } from '@/lib/catalogs'
-import { isoDate, MEAL_LABEL, mondayOf, type MealType } from '@/lib/planner'
+import { isoDate, MEAL_LABEL, weekStartOf, type MealType } from '@/lib/planner'
 import { itemMacros } from '@/lib/cooking'
 import { describeServing } from '@/lib/servings'
 import { cn } from '@/lib/utils'
@@ -132,7 +132,7 @@ export default function Home() {
 /** Lo que toca comer hoy según el menú de la semana. */
 function TodayMeals() {
   const [now] = useState(() => new Date())
-  const { items, loading } = usePlan(isoDate(mondayOf(now)))
+  const { items, loading } = usePlan(isoDate(weekStartOf(now)))
   const { catalog } = useCatalog()
   if (loading || !catalog) return null
   const today = items
@@ -174,7 +174,12 @@ function TodayMeals() {
                 <span className="min-w-0 flex-1">
                   <span className="block text-xs text-muted-foreground">{MEAL_LABEL[it.meal_type as MealType]}</span>
                   <span className={cn('block truncate font-medium', it.is_done && 'text-muted-foreground line-through')}>{r?.name}</span>
-                  {r && <span className="block truncate text-xs text-muted-foreground">{describeServing(r.serving_parts, Number(it.servings))}</span>}
+                  {r && (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {it.leftover_of_day != null && 'Sobras: '}
+                      {describeServing(r.serving_parts, Number(it.servings))}
+                    </span>
+                  )}
                 </span>
                 <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{r ? Math.round(itemMacros({ ...it, servings: Number(it.servings) }, r, catalog.ingredientById).kcal) : 0} kcal</span>
               </li>

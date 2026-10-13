@@ -32,6 +32,7 @@ type Form = {
   busyDays: number[]
   busyMax: number
   freeMax: number
+  batchCooking: boolean
 }
 
 const BUSY_MINUTES = [10, 15, 20, 30]
@@ -51,6 +52,7 @@ function fromProfile(p: Profile | null): Form {
     busyDays: p?.busy_days ?? [1, 2, 3, 4, 5],
     busyMax: p?.busy_day_max_min ?? 15,
     freeMax: p?.free_day_max_min ?? 60,
+    batchCooking: p?.batch_cooking ?? true,
   }
 }
 
@@ -140,6 +142,7 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
       busy_days: [...form.busyDays].sort((a, b) => a - b),
       busy_day_max_min: form.busyMax,
       free_day_max_min: form.freeMax,
+      batch_cooking: form.batchCooking,
       target_kcal: result.targetKcal,
       target_protein_g: result.macros.proteinG,
       target_carbs_g: result.macros.carbsG,
@@ -278,6 +281,15 @@ function PerfilForm({ initial, save }: { initial: Profile | null; save: ReturnTy
         <Field label="Máximo en días libres">
           <Chips values={FREE_MINUTES} value={form.freeMax} onChange={(v) => set('freeMax', v)} />
         </Field>
+        <label className="flex items-start justify-between gap-4 rounded-lg border p-3">
+          <span>
+            <span className="block text-sm font-medium">Cocinar de más en días libres</span>
+            <span className="block text-xs text-muted-foreground">
+              Guisos y caldos se cocinan en un día libre y se reparten como sobras en los días ocupados siguientes.
+            </span>
+          </span>
+          <input type="checkbox" checked={form.batchCooking} onChange={(e) => set('batchCooking', e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-primary" />
+        </label>
       </Section>
 
       </div>

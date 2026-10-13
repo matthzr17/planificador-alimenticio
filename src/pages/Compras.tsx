@@ -5,7 +5,7 @@ import { useCatalog, type Catalog, type Ingredient, type Measure } from '@/hooks
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan } from '@/hooks/usePlan'
 import { usePrices, useShoppingList, type ProductPrice, type ShoppingItem } from '@/hooks/useShopping'
-import { isoDate, mondayOf } from '@/lib/planner'
+import { isoDate, weekStartOf } from '@/lib/planner'
 import {
   buildShoppingList,
   compareStores,
@@ -37,8 +37,8 @@ export default function Compras() {
   const { prices, add: addPrice, remove: removePrice } = usePrices()
   const [now] = useState(() => new Date())
   const [weekOffset, setWeekOffset] = useState(0)
-  const monday = useMemo(() => addDays(mondayOf(now), weekOffset * 7), [now, weekOffset])
-  const { plan, items: planItems, loading: loadingPlan } = usePlan(isoDate(monday))
+  const weekStart = useMemo(() => addDays(weekStartOf(now), weekOffset * 7), [now, weekOffset])
+  const { plan, items: planItems, loading: loadingPlan } = usePlan(isoDate(weekStart))
   const shopping = useShoppingList(plan?.id ?? null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)

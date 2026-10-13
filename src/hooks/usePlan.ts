@@ -16,7 +16,7 @@ async function fetchWeek(week: string): Promise<Loaded> {
   return { week, plan, items: its.data ?? [], error: its.error?.message ?? null }
 }
 
-/** Plan de una semana (identificada por la fecha de su lunes, AAAA-MM-DD). */
+/** Plan de una semana (identificada por la fecha de su domingo, AAAA-MM-DD). */
 export function usePlan(weekStart: string) {
   const [state, setState] = useState<Loaded | null>(null)
 
@@ -54,7 +54,7 @@ export function usePlan(weekStart: string) {
   )
 
   /** Cambia un platillo. Recibe el platillo actual para poder revertir si falla. */
-  const updateItem = useCallback(async (item: MealPlanItem, changes: Partial<Pick<MealPlanItem, 'recipe_id' | 'servings' | 'is_done' | 'ingredients_override'>>) => {
+  const updateItem = useCallback(async (item: MealPlanItem, changes: Partial<Pick<MealPlanItem, 'recipe_id' | 'servings' | 'is_done' | 'ingredients_override' | 'leftover_of_day'>>) => {
     const put = (value: MealPlanItem) =>
       setState((s) => (s ? { ...s, items: s.items.map((it) => (it.id === item.id ? value : it)) } : s))
     put({ ...item, ...changes }) // optimista: la UI responde al instante

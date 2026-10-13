@@ -105,6 +105,7 @@ export type Database = {
           recipe_id: string
           servings: number
           ingredients_override: Json | null
+          leftover_of_day: number | null
         }
         Insert: {
           day_of_week: number
@@ -115,6 +116,7 @@ export type Database = {
           recipe_id: string
           servings?: number
           ingredients_override?: Json | null
+          leftover_of_day?: number | null
         }
         Update: Partial<Database['public']['Tables']['meal_plan_items']['Insert']>
         Relationships: [Rel, Rel]
@@ -161,6 +163,7 @@ export type Database = {
           target_protein_g: number | null
           updated_at: string
           weight_kg: number | null
+          batch_cooking: boolean
         }
         Insert: {
           activity_level?: string | null
@@ -182,9 +185,16 @@ export type Database = {
           target_protein_g?: number | null
           updated_at?: string
           weight_kg?: number | null
+          batch_cooking?: boolean
         }
         Update: Partial<Database['public']['Tables']['profiles']['Insert']>
         Relationships: []
+      }
+      recipe_favorites: {
+        Row: { created_at: string; recipe_id: string; user_id: string }
+        Insert: { created_at?: string; recipe_id: string; user_id?: string }
+        Update: Partial<Database['public']['Tables']['recipe_favorites']['Insert']>
+        Relationships: [Rel]
       }
       recipe_ingredients: {
         Row: { ingredient_id: string; quantity: number; recipe_id: string; unit: string }

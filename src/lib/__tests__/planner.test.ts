@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error módulo JS del seed, sin tipos
 import { INGREDIENTES, RECETAS } from '../../../supabase/seed/catalogo.mjs'
-import { alternativeFor, dayTotals, generateWeek, mondayOf, WEEK_ORDER, type PlannerInput, type PlannerRecipe } from '../planner'
+import { alternativeFor, batchFactor, dayTotals, generateWeek, weekStartOf, WEEK_ORDER, type PlannerInput, type PlannerRecipe } from '../planner'
 import { toGrams } from '../units'
 
 // Reconstruye el catálogo real (mismo cálculo de macros que el SQL) para probar con datos verdaderos.
@@ -54,7 +54,7 @@ const base: PlannerInput = {
   busyDays: [1, 2, 3, 4, 5],
   busyMaxMin: 15,
   freeMaxMin: 60,
-  weekStart: mondayOf(new Date(2026, 9, 14)),
+  weekStart: weekStartOf(new Date(2026, 9, 14)),
   seed: 42,
 }
 
@@ -139,5 +139,40 @@ describe('porciones en piezas enteras', () => {
     for (const it of items.filter((i) => i.meal_type === 'lunch' || i.meal_type === 'dinner')) {
       expect(Number.isInteger(Math.round(it.servings * 3 * 1000) / 1000)).toBe(true)
     }
+  })
+})
+
+describe('favoritas y cocinar para varios días', () => {
+  it('las favoritas salen más seguido', () => {
+    const fav = 'Tacos de pollo con nopales'
+    const count = (favorites?: Set<string>) =>
+      [1, 2, 3, 4, 5].reduce((n, seed) => n + generateWeek({ ...base, seed, favorites }).items.filter((i) => i.recipe_id === fav).length, 0)
+    expect(count(new Set([fav]))).toBeGreaterThan(count())
+  })
+
+  it('cocina de más en día libre y aparta sobras para días ocupados', () => {
+    // Lunes a viernes ocupados: se cocina de más el domingo y las sobras van a lunes y martes
+    const input = { ...base, batchCooking: true, busyDays: [1, 2, 3, 4, 5], freeMaxMin: 60 }
+    const { items } = generateWeek(input)
+    const leftovers = items.filter((i) => i.leftover_of_day != null)
+    expect(leftovers.length).toBeGreaterThan(0)
+    expect(leftovers.every((l) => l.leftover_of_day === 0 && [1, 2].includes(l.day_of_week))).toBe(true)
+    for (const l of leftovers) {
+      const cook = items.find((i) => i.day_of_week === l.leftover_of_day && i.meal_type === l.meal_type)!
+      expect(cook.recipe_id).toBe(l.recipe_id)
+      expect(input.busyDays).toContain(l.day_of_week)
+      expect(input.busyDays).not.toContain(cook.day_of_week)
+      expect(batchFactor(cook, items)).toBeGreaterThan(1)
+    }
+  })
+
+  it('con días libres entre semana sí genera sobras', () => {
+    const { items } = generateWeek({ ...base, batchCooking: true, busyDays: [2, 3, 5, 6], freeMaxMin: 60 })
+    expect(items.some((i) => i.leftover_of_day != null)).toBe(true)
+  })
+
+  it('sin la opción no hay sobras', () => {
+    const { items } = generateWeek({ ...base, batchCooking: false })
+    expect(items.some((i) => i.leftover_of_day != null)).toBe(false)
   })
 })

@@ -4,7 +4,8 @@ import { useAuth } from '@/auth/AuthProvider'
 import type { Catalog, Ingredient, Recipe } from '@/hooks/useCatalog'
 import type { InventoryItem } from '@/hooks/useInventory'
 import type { MealPlanItem } from '@/hooks/usePlan'
-import { applySwap, itemUses, macrosOf, pantryAfterUsing, versionIngredients, type Use } from '@/lib/cooking'
+import { applySwap, itemUses, macrosOf, pantryAfterUsing, scaleUses, versionIngredients, type Use } from '@/lib/cooking'
+import { batchFactor } from '@/lib/planner'
 import { supabase } from '@/lib/supabase'
 import { describeServing } from '@/lib/servings'
 import { formatQty, norm, toGrams, type Unit } from '@/lib/units'
@@ -44,7 +45,10 @@ export type CookDeps = {
 export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: MealPlanItem; recipe: Recipe; deps: CookDeps; onClose: () => void; onNotice: (t: string, kind?: 'ok' | 'error') => void }) {
   const { catalog, inventory } = deps
   const { session } = useAuth()
-  const planned = useMemo(() => itemUses({ ...item, servings: Number(item.servings) }, recipe), [item, recipe])
+  // Si se cocina de más (hoy y sobras), se cocina y descuenta la tanda completa
+  const factor = Math.max(1, batchFactor(item, deps.weekItems))
+  const leftovers = deps.weekItems.filter((o) => o.leftover_of_day === item.day_of_week && o.meal_type === item.meal_type && o.recipe_id === item.recipe_id)
+  const planned = useMemo(() => scaleUses(itemUses({ ...item, servings: Number(item.servings) }, recipe), factor), [item, recipe, factor])
   const [mode, setMode] = useState<Mode>({ kind: 'choose' })
   const [rows, setRows] = useState<Row[]>(() =>
     planned.map((u, i) => ({ key: `r${i}`, ingredient_id: u.ingredient_id, replaces: null, added: false, removed: false, qty: fmt(u.quantity), unit: { kind: 'unit', unit: u.unit as Unit } })),
@@ -64,14 +68,14 @@ export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: Mea
   const swaps = rows.filter((r) => r.replaces && r.replaces !== r.ingredient_id && !r.removed).map((r) => ({ from: r.replaces!, to: r.ingredient_id }))
   const additions = actual.filter((u) => rows.find((r) => r.ingredient_id === u.ingredient_id)?.added)
   const otherItemsWithSwap = deps.weekItems.filter((other) => {
-    if (other.id === item.id || other.is_done) return false
+    if (other.id === item.id || other.is_done || leftovers.some((l) => l.id === other.id)) return false
     const r = catalog.recipeById.get(other.recipe_id)
     if (!r) return false
     const uses = itemUses({ ...other, servings: Number(other.servings) }, r)
     return swaps.some((s) => uses.some((u) => u.ingredient_id === s.from))
   })
-  const kcalPlanned = macrosOf(planned, catalog.ingredientById).kcal
-  const kcalActual = macrosOf(actual, catalog.ingredientById).kcal
+  const kcalPlanned = macrosOf(planned, catalog.ingredientById).kcal / factor
+  const kcalActual = macrosOf(actual, catalog.ingredientById).kcal / factor
 
   async function deduct(uses: Use[]) {
     for (const r of pantryAfterUsing(uses, inventory, catalog.ingredientById, -1)) {
@@ -93,9 +97,12 @@ export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: Mea
   async function finish() {
     setBusy(true)
     setError(null)
-    // 1. Este platillo: hecho, con lo que realmente se usó
-    let err = await deps.updateItem(item, { is_done: true, ingredients_override: actual })
+    // 1. Este platillo: hecho, con lo que realmente se usó (por comida); se descuenta la tanda completa
+    const perMeal = scaleUses(actual, 1 / factor)
+    let err = await deps.updateItem(item, { is_done: true, ingredients_override: perMeal })
     if (!err) err = await deduct(actual)
+    // Las sobras de esta tanda llevan lo mismo
+    for (const l of leftovers) if (!err) err = await deps.updateItem(l, { ingredients_override: perMeal })
 
     // 2. Cambios para el resto de la semana (solo si así lo elegiste)
     if (!err && weekScope === 'week') {
@@ -122,7 +129,7 @@ export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: Mea
   async function saveVersion(): Promise<string | null> {
     const base = recipe.base_recipe_id ? catalog.recipeById.get(recipe.base_recipe_id) ?? recipe : recipe
     const isVersion = !!recipe.owner_id
-    const newIngredients = versionIngredients(recipe, additions, Number(item.servings), catalog.ingredientById)
+    const newIngredients = versionIngredients(recipe, additions, Number(item.servings) * factor, catalog.ingredientById)
     const m = macrosOf(newIngredients, catalog.ingredientById)
     const per = (n: number) => Math.round((n / recipe.servings) * 10) / 10
     const macros = { kcal_serving: per(m.kcal), protein_serving: per(m.protein), carbs_serving: per(m.carbs), fat_serving: per(m.fat) }
@@ -186,7 +193,7 @@ export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: Mea
         mode.kind === 'edit' ? (
           <div className="flex items-center gap-3">
             <p className="min-w-0 flex-1 text-xs text-muted-foreground tabular-nums">
-              {Math.round(kcalActual)} kcal
+              {Math.round(kcalActual)} kcal{factor > 1 && ' por comida'}
               {Math.round(kcalActual) !== Math.round(kcalPlanned) && <span> (planeado {Math.round(kcalPlanned)})</span>}
             </p>
             <Button onClick={next} disabled={busy || actual.length === 0}>
@@ -210,6 +217,11 @@ export function CookSheet({ item, recipe, deps, onClose, onNotice }: { item: Mea
     >
       {mode.kind === 'choose' && (
         <div className="flex flex-col gap-3">
+          {factor > 1 && (
+            <p className="rounded-lg bg-secondary p-3 text-sm text-secondary-foreground">
+              Cocinas para {factor} comidas: hoy y {factor === 2 ? 'una de sobras' : `${factor - 1} de sobras`}. Se descuenta la tanda completa.
+            </p>
+          )}
           <p className="text-sm text-muted-foreground">¿Cómo lo preparaste?</p>
           <Button size="lg" onClick={cookAsPlanned} disabled={busy}>
             {busy ? <Loader2 className="animate-spin" /> : <Check />}

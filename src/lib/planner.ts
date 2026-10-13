@@ -21,8 +21,11 @@ export const MEAL_LABEL: Record<MealType, string> = {
   snack: 'Colación',
 }
 
-/** Orden de los días en el plan: lunes (1) … domingo (0), con la convención de JS. */
-export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
+/**
+ * Orden de los días en el plan: domingo (0) … sábado (6), con la convención de JS.
+ * La semana empieza en domingo para poder cocinar de más el domingo y comer sobras lunes y martes.
+ */
+export const WEEK_ORDER = [0, 1, 2, 3, 4, 5, 6]
 
 // Reparto de las calorías del día. Con ayuno 16:8 no hay desayuno.
 export const MEAL_SPLIT: Record<'default' | 'fasting', Partial<Record<MealType, number>>> = {
@@ -55,12 +58,23 @@ export type PlannerInput = {
   busyDays: number[]
   busyMaxMin: number
   freeMaxMin: number
-  /** Fecha del lunes de la semana (para saber qué caduca pronto). */
+  /** Fecha del domingo con el que empieza la semana (para saber qué caduca pronto). */
   weekStart: Date
   seed?: number
+  /** Recetas favoritas: salen más seguido. */
+  favorites?: Set<string>
+  /** Cocinar de más en días libres para comer sobras en días ocupados. */
+  batchCooking?: boolean
 }
 
-export type PlanItem = { day_of_week: number; meal_type: MealType; recipe_id: string; servings: number }
+export type PlanItem = {
+  day_of_week: number
+  meal_type: MealType
+  recipe_id: string
+  servings: number
+  /** Si es sobra: el día en que se cocinó la tanda. */
+  leftover_of_day?: number | null
+}
 export type PlanResult = { items: PlanItem[]; warnings: string[] }
 
 const SERVING_STEP = 0.5
@@ -81,10 +95,10 @@ export function rng(seed: number) {
   }
 }
 
-export function mondayOf(date: Date): Date {
+/** Domingo con el que empieza la semana del menú. */
+export function weekStartOf(date: Date): Date {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  const offset = (d.getDay() + 6) % 7 // lunes = 0
-  d.setDate(d.getDate() - offset)
+  d.setDate(d.getDate() - d.getDay())
   return d
 }
 
@@ -127,6 +141,8 @@ type State = {
   uses: Map<string, number> // veces que se usó cada receta en la semana
   usedOnDay: Map<number, Set<string>>
   random: () => number
+  /** Sobras ya apartadas: "día:comida" → receta y porciones. */
+  reserved: Map<string, { recipe: PlannerRecipe; servings: number; cookDay: number }>
 }
 
 function initState(input: PlannerInput): State {
@@ -147,6 +163,7 @@ function initState(input: PlannerInput): State {
     uses: new Map(),
     usedOnDay: new Map(),
     random: rng(input.seed ?? 1),
+    reserved: new Map(),
   }
 }
 
@@ -187,6 +204,8 @@ function score(state: State, recipe: PlannerRecipe, day: number, mealKcal: numbe
   s -= (state.uses.get(recipe.id) ?? 0) * 2.5
   if (state.usedOnDay.get(day)?.has(recipe.id)) s -= 5
   if (diet === 'mediterranean' && recipe.diet_tags?.includes('mediterranean')) s += 1
+  if (state.input.favorites?.has(recipe.id)) s += 1.5
+  if (batchable(state, recipe, day) && busySlotsAfter(state, day, recipe.meal_type as MealType).length) s += 1.2
   if (diet === 'high_protein' && recipe.kcal_serving) s += (((recipe.protein_serving ?? 0) * 4) / recipe.kcal_serving) * 4
   // Penaliza recetas que necesitan porciones muy forzadas para llegar a las calorías
   const ideal = mealKcal / recipe.kcal_serving!
@@ -207,6 +226,32 @@ function commit(state: State, day: number, recipe: PlannerRecipe, need: Map<stri
   }
 }
 
+const MAX_LEFTOVERS = 2
+
+/** Recetas que rinden (3+ porciones) en comida o cena de un día libre: se cocina de más. */
+function batchable(state: State, recipe: PlannerRecipe, day: number) {
+  return (
+    !!state.input.batchCooking &&
+    recipe.servings >= 3 &&
+    (recipe.meal_type === 'lunch' || recipe.meal_type === 'dinner') &&
+    !state.input.busyDays.includes(day)
+  )
+}
+
+/** Hasta 2 días ocupados siguientes (dentro de 3 días) con esa comida libre para sobras. */
+function busySlotsAfter(state: State, day: number, meal: MealType): number[] {
+  const idx = WEEK_ORDER.indexOf(day)
+  return WEEK_ORDER.slice(idx + 1, idx + 4)
+    .filter((d) => state.input.busyDays.includes(d) && !state.reserved.has(`${d}:${meal}`))
+    .slice(0, MAX_LEFTOVERS)
+}
+
+/** Cuántas comidas cubre un platillo: él mismo más sus sobras en la semana. */
+export function batchFactor(item: { day_of_week: number; meal_type: string; recipe_id: string; leftover_of_day?: number | null }, items: typeof item[]) {
+  if (item.leftover_of_day != null) return 0
+  return 1 + items.filter((o) => o.leftover_of_day === item.day_of_week && o.meal_type === item.meal_type && o.recipe_id === item.recipe_id).length
+}
+
 function mealsFor(diet: DietType) {
   return diet === 'intermittent_fasting' ? MEAL_SPLIT.fasting : MEAL_SPLIT.default
 }
@@ -222,6 +267,15 @@ export function generateWeek(input: PlannerInput): PlanResult {
   for (const day of WEEK_ORDER) {
     for (const meal of Object.keys(split) as MealType[]) {
       const mealKcal = input.targetKcal * split[meal]!
+
+      // Si esta comida ya tiene sobras apartadas, se usan
+      const reserved = state.reserved.get(`${day}:${meal}`)
+      if (reserved) {
+        commit(state, day, reserved.recipe, new Map())
+        items.push({ day_of_week: day, meal_type: meal, recipe_id: reserved.recipe.id, servings: reserved.servings, leftover_of_day: reserved.cookDay })
+        continue
+      }
+
       const { list, relaxed } = candidates(state, day, meal)
       if (!list.length) {
         warnings.add(`No hay recetas de ${MEAL_LABEL[meal].toLowerCase()} disponibles.`)
@@ -231,7 +285,13 @@ export function generateWeek(input: PlannerInput): PlanResult {
       if (relaxed === 'diet') warnings.add(`No hay suficientes recetas de ${MEAL_LABEL[meal].toLowerCase()} para tu dieta; se usaron otras.`)
 
       const best = list.map((r) => ({ r, ...score(state, r, day, mealKcal) })).sort((a, b) => b.score - a.score)[0]
-      commit(state, day, best.r, best.need)
+
+      // Cocinar de más: aparta sobras para los siguientes días ocupados
+      const slots = batchable(state, best.r, day) ? busySlotsAfter(state, day, meal) : []
+      for (const d of slots) state.reserved.set(`${d}:${meal}`, { recipe: best.r, servings: best.servings, cookDay: day })
+      const need = new Map([...best.need].map(([id, g]) => [id, g * (1 + slots.length)]))
+
+      commit(state, day, best.r, need)
       items.push({ day_of_week: day, meal_type: meal, recipe_id: best.r.id, servings: best.servings })
     }
   }
