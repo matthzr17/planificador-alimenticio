@@ -36,6 +36,8 @@ export default defineConfig({
         // La SPA usa HashRouter, así que basta con cachear el shell.
         // Las llamadas a Supabase son de otro dominio y no se cachean: datos siempre frescos.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Manejo de notificaciones (avisos de caducidad)
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

@@ -141,6 +141,12 @@ export type Database = {
         Update: Partial<Database['public']['Tables']['meal_plans']['Insert']>
         Relationships: []
       }
+      push_subscriptions: {
+        Row: { id: string; user_id: string; endpoint: string; p256dh: string; auth: string; last_sent_on: string | null; created_at: string }
+        Insert: { id?: string; user_id?: string; endpoint: string; p256dh: string; auth: string; last_sent_on?: string | null; created_at?: string }
+        Update: Partial<Database['public']['Tables']['push_subscriptions']['Insert']>
+        Relationships: []
+      }
       weight_logs: {
         Row: { id: string; user_id: string; logged_on: string; weight_kg: number; created_at: string }
         Insert: { id?: string; user_id?: string; logged_on?: string; weight_kg: number; created_at?: string }

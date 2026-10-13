@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet } from '@/components/ui/sheet'
+import { ExpiryAlerts } from '@/components/ExpiryAlerts'
 import { CATEGORIES, PickIngredientSheet } from '@/components/IngredientPicker'
 import { MeasuresEditor } from '@/components/MeasuresEditor'
 import { normalizeQty, QuantityInput, type QtyUnit } from '@/components/QuantityInput'
@@ -72,6 +73,8 @@ export default function Despensa() {
       </header>
 
       {loadError && <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">No se pudo cargar la despensa: {loadError}</p>}
+
+      <ExpiryAlerts />
 
       {loading && !loadError ? (
         <div className="flex justify-center py-16">

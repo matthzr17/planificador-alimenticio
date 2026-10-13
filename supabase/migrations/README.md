@@ -14,3 +14,11 @@ Aquí se describen en orden para referencia:
 Para ver el SQL exacto: Supabase → Database → Migrations.
 7. `bloque4_favoritas_y_sobras` – tabla `recipe_favorites`, `profiles.batch_cooking`, `meal_plan_items.leftover_of_day`.
 8. `bloque4_semana_inicia_domingo` – los planes existentes pasan a empezar en domingo.
+9. `bloque5_presupuesto` – `profiles.weekly_budget`.
+10. `bloque8_registro_de_peso` – tabla `weight_logs`, `profiles.kcal_adjustment` y `kcal_adjusted_on`.
+11. `bloque10_avisos_caducidad` – tabla `push_subscriptions`, llave VAPID privada en Vault
+    (`get_vapid_private_key`, solo service_role) y extensiones `pg_cron`/`pg_net`.
+12. `bloque10_permisos_servidor` – permisos mínimos de service_role para la función de avisos.
+13. `bloque10_revision_diaria` – tarea `avisos-caducidad-diario` (pg_cron, 15:00 UTC = 9:00 CDMX).
+
+La función `supabase/functions/avisos-caducidad` se publica como Edge Function (verify_jwt activado).
