@@ -7,6 +7,7 @@ import { usePlan } from '@/hooks/usePlan'
 import { useProfile } from '@/hooks/useProfile'
 import { DIET_OPTIONS, GOAL_OPTIONS } from '@/lib/catalogs'
 import { isoDate, MEAL_LABEL, mondayOf, type MealType } from '@/lib/planner'
+import { itemMacros } from '@/lib/cooking'
 import { describeServing } from '@/lib/servings'
 import { cn } from '@/lib/utils'
 import { InstallHint } from '@/components/InstallHint'
@@ -175,7 +176,7 @@ function TodayMeals() {
                   <span className={cn('block truncate font-medium', it.is_done && 'text-muted-foreground line-through')}>{r?.name}</span>
                   {r && <span className="block truncate text-xs text-muted-foreground">{describeServing(r.serving_parts, Number(it.servings))}</span>}
                 </span>
-                <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{Math.round((r?.kcal_serving ?? 0) * Number(it.servings))} kcal</span>
+                <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{r ? Math.round(itemMacros({ ...it, servings: Number(it.servings) }, r, catalog.ingredientById).kcal) : 0} kcal</span>
               </li>
             )
           })}

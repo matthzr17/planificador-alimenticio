@@ -31,6 +31,7 @@ export function QuantityInput({
   unit,
   onUnit,
   autoFocus,
+  compact,
 }: {
   id: string
   ingredient: Ingredient
@@ -40,6 +41,8 @@ export function QuantityInput({
   unit: QtyUnit
   onUnit: (u: QtyUnit) => void
   autoFocus?: boolean
+  /** Cantidad y unidades en una sola línea (para listas). */
+  compact?: boolean
 }) {
   const piece = measures.find((m) => m.is_piece)
   const baseUnits = unitsFor(ingredient)
@@ -60,9 +63,9 @@ export function QuantityInput({
     cn('h-9 min-w-14 shrink-0 rounded-md border px-3 text-sm transition-colors', active ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-card')
 
   return (
-    <div className="grid gap-2">
-      <Input id={id} inputMode="decimal" autoFocus={autoFocus} value={quantity} onChange={(e) => onQuantity(e.target.value)} placeholder="0" />
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Unidad">
+    <div className={cn('grid gap-2', compact && 'grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-x-2')}>
+      <Input id={id} inputMode="decimal" autoFocus={autoFocus} value={quantity} onChange={(e) => onQuantity(e.target.value)} placeholder="0" className={cn(compact && 'h-9 text-right')} />
+      <div className={cn('flex flex-wrap gap-1.5', compact && 'min-w-0')} role="radiogroup" aria-label="Unidad">
         {baseUnits.map((u) => {
           const value: QtyUnit = { kind: 'unit', unit: u }
           return (
@@ -80,7 +83,7 @@ export function QuantityInput({
           )
         })}
       </div>
-      {hint && <p className="text-xs text-muted-foreground tabular-nums">{hint}</p>}
+      {hint && <p className={cn('text-xs text-muted-foreground tabular-nums', compact && 'col-span-2')}>{hint}</p>}
     </div>
   )
 }

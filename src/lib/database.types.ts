@@ -52,6 +52,7 @@ export type Database = {
           name: string
           owner_id: string | null
           protein_100g: number | null
+          swap_group: string | null
         }
         Insert: {
           carbs_100g?: number | null
@@ -65,6 +66,7 @@ export type Database = {
           name: string
           owner_id?: string | null
           protein_100g?: number | null
+          swap_group?: string | null
         }
         Update: Partial<Database['public']['Tables']['ingredients']['Insert']>
         Relationships: []
@@ -102,6 +104,7 @@ export type Database = {
           meal_type: string
           recipe_id: string
           servings: number
+          ingredients_override: Json | null
         }
         Insert: {
           day_of_week: number
@@ -111,6 +114,7 @@ export type Database = {
           meal_type: string
           recipe_id: string
           servings?: number
+          ingredients_override?: Json | null
         }
         Update: Partial<Database['public']['Tables']['meal_plan_items']['Insert']>
         Relationships: [Rel, Rel]
@@ -203,6 +207,7 @@ export type Database = {
           owner_id: string | null
           prep_time_min: number
           protein_serving: number | null
+          base_recipe_id: string | null
           servings: number
           serving_parts: Json
         }
@@ -220,6 +225,7 @@ export type Database = {
           owner_id?: string | null
           prep_time_min: number
           protein_serving?: number | null
+          base_recipe_id?: string | null
           servings?: number
           serving_parts?: Json
         }

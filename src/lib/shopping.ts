@@ -9,6 +9,7 @@
 //   - Costo por 10 g de proteína (para elegir la mejor proteína por tu dinero).
 // La mejor opción de cada artículo es la de menor costo para cubrir la cantidad.
 
+import { itemUses, pantryAfterUsing, type PantryRecord } from './cooking'
 import { toGrams, type Unit } from './units'
 
 export const STORES = [
@@ -34,9 +35,9 @@ type RecipeLike = { id: string; servings: number; ingredients: { ingredient_id: 
 
 // ---------- lista ----------
 
-/** Gramos totales por ingrediente que pide el plan (solo platillos no hechos). */
+/** Gramos totales por ingrediente que pide el plan (solo platillos no hechos; respeta cambios de ingredientes). */
 export function planNeeds(
-  items: { recipe_id: string; servings: number; is_done?: boolean }[],
+  items: { recipe_id: string; servings: number; is_done?: boolean; ingredients_override?: unknown }[],
   recipeById: Map<string, RecipeLike>,
   ingredientById: Map<string, Ing>,
 ): Map<string, number> {
@@ -45,11 +46,10 @@ export function planNeeds(
     if (it.is_done) continue
     const r = recipeById.get(it.recipe_id)
     if (!r) continue
-    for (const ri of r.ingredients) {
-      const ing = ingredientById.get(ri.ingredient_id)
+    for (const u of itemUses(it, r)) {
+      const ing = ingredientById.get(u.ingredient_id)
       if (!ing) continue
-      const g = (toGrams(Number(ri.quantity), ri.unit, ing) / r.servings) * Number(it.servings)
-      needs.set(ri.ingredient_id, (needs.get(ri.ingredient_id) ?? 0) + g)
+      needs.set(u.ingredient_id, (needs.get(u.ingredient_id) ?? 0) + toGrams(u.quantity, u.unit, ing))
     }
   }
   return needs
@@ -186,36 +186,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100
 
 // ---------- descontar de la despensa al cocinar ----------
 
-export type PantryRecord = { id?: string; ingredient_id: string; quantity: number; unit: string; is_approximate: boolean; expires_on: string | null }
+export type { PantryRecord }
 
-/**
- * Nuevos registros de despensa tras cocinar (sign = -1) o deshacer (sign = +1) un platillo.
- * Al cocinar solo se descuenta lo que existe en la despensa, sin bajar de cero.
- * Al deshacer, si el registro ya no existe se vuelve a crear en la unidad base del ingrediente.
- */
-export function pantryAfterCooking(
-  recipe: RecipeLike,
-  servings: number,
-  pantry: PantryRecord[],
-  ingredientById: Map<string, Ing>,
-  sign: 1 | -1,
-): PantryRecord[] {
-  const out: PantryRecord[] = []
-  for (const ri of recipe.ingredients) {
-    const ing = ingredientById.get(ri.ingredient_id)
-    if (!ing) continue
-    const grams = (toGrams(Number(ri.quantity), ri.unit, ing) / recipe.servings) * servings
-    const current = pantry.find((p) => p.ingredient_id === ri.ingredient_id)
-    if (!current) {
-      if (sign === 1) {
-        const unit = ing.default_unit === 'pza' && ing.grams_per_unit ? 'pza' : ing.default_unit === 'ml' ? 'ml' : 'g'
-        out.push({ ingredient_id: ri.ingredient_id, quantity: round2(grams / toGrams(1, unit, ing)), unit, is_approximate: false, expires_on: null })
-      }
-      continue
-    }
-    const perUnit = toGrams(1, current.unit, ing)
-    const qty = Math.max(0, round2(Number(current.quantity) + (sign * grams) / perUnit))
-    out.push({ ...current, quantity: qty })
-  }
-  return out
+/** Compatibilidad: descuenta (sign −1) o regresa (+1) los ingredientes de N porciones de una receta. */
+export function pantryAfterCooking(recipe: RecipeLike, servings: number, pantry: PantryRecord[], ingredientById: Map<string, Ing>, sign: 1 | -1) {
+  return pantryAfterUsing(itemUses({ recipe_id: recipe.id, servings }, recipe), pantry, ingredientById, sign)
 }

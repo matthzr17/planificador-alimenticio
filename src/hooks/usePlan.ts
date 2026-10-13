@@ -54,7 +54,7 @@ export function usePlan(weekStart: string) {
   )
 
   /** Cambia un platillo. Recibe el platillo actual para poder revertir si falla. */
-  const updateItem = useCallback(async (item: MealPlanItem, changes: Partial<Pick<MealPlanItem, 'recipe_id' | 'servings' | 'is_done'>>) => {
+  const updateItem = useCallback(async (item: MealPlanItem, changes: Partial<Pick<MealPlanItem, 'recipe_id' | 'servings' | 'is_done' | 'ingredients_override'>>) => {
     const put = (value: MealPlanItem) =>
       setState((s) => (s ? { ...s, items: s.items.map((it) => (it.id === item.id ? value : it)) } : s))
     put({ ...item, ...changes }) // optimista: la UI responde al instante
@@ -66,7 +66,11 @@ export function usePlan(weekStart: string) {
     return null
   }, [])
 
+  /** Vuelve a leer la semana desde la base de datos. */
+  const reload = useCallback(async () => setState(await fetchWeek(weekStart)), [weekStart])
+
   return {
+    reload,
     plan: current?.plan ?? null,
     items: current?.items ?? [],
     loading: !current,

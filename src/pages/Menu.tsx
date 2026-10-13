@@ -1,17 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { Check, ChevronLeft, ChevronRight, Clock, Info, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react'
 import { useCatalog, type Catalog, type Recipe } from '@/hooks/useCatalog'
 import { useInventory, type InventoryItem } from '@/hooks/useInventory'
 import { usePlan, type MealPlanItem } from '@/hooks/usePlan'
 import { useProfile, type Profile } from '@/hooks/useProfile'
-import { alternativeFor, dayTotals, generateWeek, isoDate, MEAL_LABEL, mondayOf, WEEK_ORDER, type MealType, type PlannerInput } from '@/lib/planner'
+import { alternativeFor, generateWeek, isoDate, MEAL_LABEL, mondayOf, WEEK_ORDER, type MealType, type PlannerInput } from '@/lib/planner'
 import { dietAllows } from '@/lib/planner'
 import type { DietType } from '@/lib/nutrition'
 import { norm } from '@/lib/units'
+import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { fmtServings, pantryCoverage, RecipeSheet } from '@/components/RecipeSheet'
-import { pantryAfterCooking } from '@/lib/shopping'
+import { itemMacros, itemUses, pantryAfterUsing, sumMacros } from '@/lib/cooking'
+import { CookSheet } from '@/components/CookSheet'
 import { describeServing } from '@/lib/servings'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -55,7 +57,8 @@ function plannerInput(profile: Profile, catalog: Catalog, inventory: InventoryIt
 export default function Menu() {
   const [tab, setTab] = useState<'semana' | 'recetario'>('semana')
   const { profile, loading: loadingProfile } = useProfile()
-  const { catalog, error: catalogError } = useCatalog()
+  const { catalog, error: catalogError, reload: reloadCatalog } = useCatalog()
+  const [planRefresh, setPlanRefresh] = useState(0)
   const { items: inventory, upsert: upsertPantry } = useInventory()
   const [open, setOpen] = useState<{ recipe: Recipe; servings: number } | null>(null)
 
@@ -88,13 +91,30 @@ export default function Menu() {
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : tab === 'semana' ? (
-        <Semana profile={profile} catalog={catalog} inventory={inventory} upsertPantry={upsertPantry} onOpen={(recipe, servings) => setOpen({ recipe, servings })} />
+        <Semana profile={profile} catalog={catalog} inventory={inventory} upsertPantry={upsertPantry} reloadCatalog={reloadCatalog} planRefresh={planRefresh} onOpen={(recipe, servings) => setOpen({ recipe, servings })} />
       ) : (
         <Recetario profile={profile} catalog={catalog} inventory={inventory} onOpen={(recipe) => setOpen({ recipe, servings: 1 })} />
       )}
 
       {open && catalog && inventory && (
-        <RecipeSheet recipe={open.recipe} servings={open.servings} catalog={catalog} inventory={inventory} onClose={() => setOpen(null)} />
+        <RecipeSheet
+          recipe={open.recipe}
+          servings={open.servings}
+          catalog={catalog}
+          inventory={inventory}
+          onClose={() => setOpen(null)}
+          onRestoreOriginal={async () => {
+            // Los platillos que usaban tu versión regresan a la original; luego se borra tu versión
+            const base = open.recipe.base_recipe_id!
+            const { error: e1 } = await supabase.from('meal_plan_items').update({ recipe_id: base }).eq('recipe_id', open.recipe.id)
+            if (e1) return e1.message
+            const { error: e2 } = await supabase.from('recipes').delete().eq('id', open.recipe.id)
+            if (e2) return e2.message
+            await reloadCatalog()
+            setPlanRefresh((n) => n + 1)
+            return null
+          }}
+        />
       )}
     </div>
   )
@@ -108,23 +128,32 @@ function Semana({
   inventory,
   onOpen,
   upsertPantry,
+  reloadCatalog,
+  planRefresh,
 }: {
   profile: Profile | null
   catalog: Catalog
   inventory: InventoryItem[]
   onOpen: (r: Recipe, servings: number) => void
   upsertPantry: ReturnType<typeof useInventory>['upsert']
+  reloadCatalog: () => Promise<void>
+  planRefresh: number
 }) {
   const [now] = useState(() => new Date())
   const thisMonday = useMemo(() => mondayOf(now), [now])
   const todayDow = now.getDay()
   const [weekOffset, setWeekOffset] = useState(0)
   const monday = useMemo(() => addDays(thisMonday, weekOffset * 7), [thisMonday, weekOffset])
-  const { items, loading, error, replace, updateItem } = usePlan(isoDate(monday))
+  const { items, loading, error, replace, updateItem, reload: reloadPlan } = usePlan(isoDate(monday))
+  // Cuando cambian recetas desde fuera de la semana (p. ej. volver a la original), se relee el plan
+  useEffect(() => {
+    if (planRefresh) reloadPlan()
+  }, [planRefresh, reloadPlan])
   const [day, setDay] = useState<number>(todayDow)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string } | null>(null)
   const [swapping, setSwapping] = useState<string | null>(null)
+  const [cooking, setCooking] = useState<MealPlanItem | null>(null)
 
   if (!profile?.target_kcal) {
     return (
@@ -151,24 +180,22 @@ function Semana({
     else setNotice({ kind: 'ok', text: inventory.length ? 'Menú listo. Se priorizó lo que tienes en la despensa.' : 'Menú listo. Agrega tu despensa para que aproveche lo que ya tienes.' })
   }
 
-  /** Marcar como hecho descuenta los ingredientes de la despensa; desmarcar los regresa. */
+  /** Marcar abre "¿Cómo lo preparaste?"; desmarcar regresa a la despensa lo que se había descontado. */
   async function toggleDone(item: MealPlanItem) {
     const recipe = catalog.recipeById.get(item.recipe_id)
-    const err = await updateItem(item, { is_done: !item.is_done })
-    if (err || !recipe) {
-      if (err) setNotice({ kind: 'error', text: `No se pudo marcar: ${err}` })
+    if (!recipe) return
+    if (!item.is_done) {
+      setCooking(item)
       return
     }
-    const records = pantryAfterCooking(recipe, Number(item.servings), inventory, catalog.ingredientById, item.is_done ? 1 : -1)
+    const err = await updateItem(item, { is_done: false })
+    if (err) return setNotice({ kind: 'error', text: `No se pudo desmarcar: ${err}` })
+    const records = pantryAfterUsing(itemUses({ ...item, servings: Number(item.servings) }, recipe), inventory, catalog.ingredientById, 1)
     for (const r of records) {
       const e = await upsertPantry({ ingredient_id: r.ingredient_id, quantity: r.quantity, unit: r.unit, is_approximate: r.is_approximate, expires_on: r.expires_on })
-      if (e) {
-        setNotice({ kind: 'error', text: `Se marcó, pero no se pudo actualizar la despensa: ${e}` })
-        return
-      }
+      if (e) return setNotice({ kind: 'error', text: `Se desmarcó, pero no se pudo actualizar la despensa: ${e}` })
     }
-    if (records.length)
-      setNotice({ kind: 'ok', text: item.is_done ? 'Se regresaron los ingredientes a tu despensa.' : 'Listo. Se descontaron los ingredientes de tu despensa.' })
+    setNotice({ kind: 'ok', text: 'Se regresaron los ingredientes a tu despensa.' })
   }
 
   async function swap(item: MealPlanItem) {
@@ -186,9 +213,11 @@ function Semana({
   const dayItems = items
     .filter((i) => i.day_of_week === day)
     .sort((a, b) => MEAL_ORDER.indexOf(a.meal_type as MealType) - MEAL_ORDER.indexOf(b.meal_type as MealType))
-  const totals = dayTotals(
-    dayItems.map((i) => ({ ...i, servings: Number(i.servings) })),
-    catalog.recipeById,
+  const totals = sumMacros(
+    dayItems.flatMap((i) => {
+      const r = catalog.recipeById.get(i.recipe_id)
+      return r ? [itemMacros({ ...i, servings: Number(i.servings) }, r, catalog.ingredientById)] : []
+    }),
   )
   const target = profile.target_kcal
   const pct = Math.min(100, (totals.kcal / target) * 100)
@@ -319,7 +348,7 @@ function Semana({
                         {recipe.prep_time_min} min
                       </span>
                       <span className="font-medium text-foreground">{describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}</span>
-                      <span className="tabular-nums">{Math.round((recipe.kcal_serving ?? 0) * servings)} kcal</span>
+                      <span className="tabular-nums">{Math.round(itemMacros({ ...item, servings }, recipe, catalog.ingredientById).kcal)} kcal</span>
                     </p>
                   </button>
                   <div className="flex items-center gap-2 border-t px-2 py-1.5">
@@ -345,6 +374,15 @@ function Semana({
             })}
           </ul>
         </>
+      )}
+      {cooking && catalog.recipeById.get(cooking.recipe_id) && (
+        <CookSheet
+          item={items.find((i) => i.id === cooking.id) ?? cooking}
+          recipe={catalog.recipeById.get(cooking.recipe_id)!}
+          deps={{ catalog, inventory, weekItems: items, updateItem, upsertPantry, reloadCatalog }}
+          onClose={() => setCooking(null)}
+          onNotice={(text, kind = 'ok') => setNotice({ kind, text })}
+        />
       )}
     </div>
   )
@@ -412,7 +450,10 @@ function Recetario({
           return (
             <li key={r.id} className="min-w-0">
               <button type="button" onClick={() => onOpen(r)} className="flex h-full w-full min-w-0 flex-col rounded-xl border bg-card p-4 text-left transition-colors hover:bg-muted/50">
-                <span className="text-xs font-medium text-muted-foreground">{MEAL_LABEL[r.meal_type as MealType]}</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {MEAL_LABEL[r.meal_type as MealType]}
+                  {r.owner_id && <span className="ml-2 text-primary">Tu versión</span>}
+                </span>
                 <span className="mt-0.5 font-display text-base font-semibold leading-snug">{r.name}</span>
                 <span className="mt-auto flex flex-wrap gap-x-3 pt-2 text-sm text-muted-foreground">
                   <span>{r.prep_time_min} min</span>

@@ -11,8 +11,12 @@ export type Catalog = {
   ingredients: Ingredient[]
   /** Ingredientes con el peso por pieza ya ajustado a tus medidas. */
   ingredientById: Map<string, Ingredient>
+  /** Recetas visibles: si tienes tu versión de una receta, aparece la tuya en lugar de la original. */
   recipes: Recipe[]
+  /** Todas, incluidas las originales que reemplazaste (los menús viejos pueden apuntar a ellas). */
   recipeById: Map<string, Recipe>
+  /** Tu versión de cada receta original. */
+  versionByBase: Map<string, Recipe>
   /** Medidas por ingrediente: tus ajustes reemplazan a la medida general del mismo nombre. */
   measuresByIngredient: Map<string, Measure[]>
 }
@@ -51,7 +55,9 @@ async function load(): Promise<Catalog> {
     list.push(row)
     byRecipe.set(row.recipe_id, list)
   }
-  const recipes = (rec.data ?? []).map((r) => ({ ...r, ingredients: byRecipe.get(r.id) ?? [] }))
+  const all = (rec.data ?? []).map((r) => ({ ...r, ingredients: byRecipe.get(r.id) ?? [] }))
+  const versionByBase = new Map(all.filter((r) => r.owner_id && r.base_recipe_id).map((r) => [r.base_recipe_id!, r]))
+  const recipes = all.filter((r) => !versionByBase.has(r.id))
   const measuresByIngredient = mergeMeasures(me.data ?? [])
 
   // El peso de "la pieza" sale de la medida (tu ajuste si existe); así todas las conversiones lo respetan
@@ -63,7 +69,8 @@ async function load(): Promise<Catalog> {
     ingredients,
     ingredientById: new Map(ingredients.map((i) => [i.id, i])),
     recipes,
-    recipeById: new Map(recipes.map((r) => [r.id, r])),
+    recipeById: new Map(all.map((r) => [r.id, r])),
+    versionByBase,
     measuresByIngredient,
   }
 }

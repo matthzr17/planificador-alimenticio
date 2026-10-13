@@ -41,12 +41,15 @@ export function RecipeSheet({
   catalog,
   inventory,
   onClose,
+  onRestoreOriginal,
 }: {
   recipe: Recipe
   servings: number
   catalog: Catalog
   inventory: InventoryItem[]
   onClose: () => void
+  /** Solo para tus versiones: volver a la receta original. */
+  onRestoreOriginal?: () => Promise<string | null>
 }) {
   const { status } = pantryCoverage(recipe, servings, catalog, inventory)
   const factor = servings / recipe.servings
@@ -71,6 +74,17 @@ export function RecipeSheet({
             {describeServing(recipe.serving_parts, servings) ?? fmtServings(servings)}
           </span>
         </div>
+
+        {recipe.owner_id && recipe.base_recipe_id && (
+          <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-secondary p-3 text-sm text-secondary-foreground">
+            <p className="min-w-0 flex-1">Es tu versión de esta receta, con los ingredientes que agregaste.</p>
+            {onRestoreOriginal && (
+              <button type="button" className="shrink-0 text-sm font-medium underline-offset-4 hover:underline" onClick={() => onRestoreOriginal().then((e) => !e && onClose())}>
+                Volver a la original
+              </button>
+            )}
+          </div>
+        )}
 
         <dl className="grid grid-cols-4 gap-2 rounded-lg bg-muted p-3 text-center">
           {macros.map((m) => (
